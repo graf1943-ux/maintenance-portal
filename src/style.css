@@ -9,3 +9,7 @@
 .detail-grid label{display:block}
 .detail-grid>div{min-width:0}
 .modal textarea{width:100%;min-height:130px;resize:vertical;border:1px solid #dce3eb;border-radius:6px;padding:10px;font:inherit;font-size:12px;line-height:1.7;color:#52657c}.memo-cell{white-space:normal;min-width:220px;max-width:360px;line-height:1.6}
+
+/* Sidebar information architecture: customer-facing work vs store administration */
+.nav-group{margin:0 0 13px}.nav-group-title{padding:10px 12px 5px;color:#8fa0b4;font-size:9px;font-weight:700;letter-spacing:.08em}.nav-group .nav-item{margin-bottom:3px}.sidebar{overflow-y:auto}.sidebar-bottom{margin-top:auto;padding-top:16px}
+@media(max-width:700px){.nav-group{display:inline-flex;flex-direction:column;vertical-align:top;margin:0 8px 0 0}.nav-group-title{padding:7px 8px 4px}.sidebar-bottom{margin-top:10px}.sidebar{max-height:none}}
