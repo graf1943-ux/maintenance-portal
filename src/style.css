@@ -15,3 +15,8 @@
 @media(max-width:700px){.nav-group{display:inline-flex;flex-direction:column;vertical-align:top;margin:0 8px 0 0}.nav-group-title{padding:7px 8px 4px}.sidebar-bottom{margin-top:10px}.sidebar{max-height:none}}
 
 .multi-bike-tag{display:inline-block;margin-left:6px;padding:2px 6px;border-radius:999px;background:#e8f1ff;color:#245a9b;font-size:10px;font-weight:700;vertical-align:middle}
+
+/* 日付列の昇順・降順切り替え */
+.sort-header{display:inline-flex;align-items:center;gap:5px;padding:2px 0;border:0;background:transparent;color:inherit;font:inherit;font-weight:700;cursor:pointer;white-space:nowrap}
+.sort-header:hover{color:var(--primary,#2563eb);text-decoration:underline}
+.sort-header:focus-visible{outline:2px solid var(--primary,#2563eb);outline-offset:3px;border-radius:3px}
