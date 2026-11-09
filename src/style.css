@@ -8,3 +8,4 @@
 .detail-grid input,.detail-grid select{width:100%;box-sizing:border-box;border:1px solid #dce3eb;border-radius:6px;padding:8px;font:inherit;font-size:11px;background:#fff;color:#52657c}
 .detail-grid label{display:block}
 .detail-grid>div{min-width:0}
+.modal textarea{width:100%;min-height:130px;resize:vertical;border:1px solid #dce3eb;border-radius:6px;padding:10px;font:inherit;font-size:12px;line-height:1.7;color:#52657c}.memo-cell{white-space:normal;min-width:220px;max-width:360px;line-height:1.6}
