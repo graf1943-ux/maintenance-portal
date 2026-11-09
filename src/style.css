@@ -4,3 +4,7 @@
 /* Road-bike care mock additions */
 .plan-line{display:flex;flex-direction:column;gap:4px;padding:12px 2px;border-bottom:1px solid #eff2f6}.plan-line:last-child{border:0}.plan-line b{font-size:11px;color:#40536b}.plan-line span{font-size:10px;color:#65758a}.plan-line small{font-size:9px;color:#91a0b1}.customer-bike{display:flex;align-items:center;gap:15px;padding:13px 4px;border-bottom:1px solid #edf0f4}.customer-bike:last-child{border:0}.bike-symbol{width:48px;height:48px;border-radius:10px;background:#edf4fb;display:grid;place-items:center;font-size:24px}.customer-bike .equipment-details{display:flex;flex-direction:column;gap:5px}.customer-bike .equipment-details b{font-size:12px}.customer-bike .equipment-details small{font-size:10px;color:#8996a7}.nav-item{white-space:nowrap}
 @media(max-width:700px){.sidebar{overflow-x:auto;white-space:nowrap}.sidebar .nav-item{white-space:nowrap}.customer-bike{align-items:flex-start}.page-heading select{max-width:150px}}
+/* Annual plan mock additions */
+.detail-grid input,.detail-grid select{width:100%;box-sizing:border-box;border:1px solid #dce3eb;border-radius:6px;padding:8px;font:inherit;font-size:11px;background:#fff;color:#52657c}
+.detail-grid label{display:block}
+.detail-grid>div{min-width:0}
