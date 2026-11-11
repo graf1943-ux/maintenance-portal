@@ -24,6 +24,11 @@
     mapEvent,
     type ApiBike,
   } from './services/apiMappers';
+  import {
+    isOverhaulSeason,
+    isAnnualContractStart,
+    isApplicationWithinContractYear,
+  } from './services/contractRules';
   const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true';
   const dataSourceStatus = ref<'mock' | 'api' | 'error'>(USE_MOCK_DATA ? 'mock' : 'api');
   const dataSourceLabel = USE_MOCK_DATA ? 'MOCK DATA' : 'API MODE';
@@ -1071,16 +1076,12 @@
       return;
     }
     const f = contractForm.value;
-    if (!f.start.endsWith('-12-01')) {
+    const year = Number(f.start.slice(0, 4));
+    if (!isAnnualContractStart(f.start)) {
       notice.value = '年間契約の開始日は12月1日にしてください。';
       return;
     }
-    const year = Number(f.start.slice(0, 4));
-    if (
-      !f.applicationDate ||
-      f.applicationDate.slice(0, 4) !== String(year) ||
-      f.applicationDate > `${year}-12-31`
-    ) {
+    if (!isApplicationWithinContractYear(f.applicationDate, year)) {
       notice.value = '年間契約の受付期限は契約開始年の12月31日です。';
       return;
     }
@@ -1247,20 +1248,6 @@
     if (ok) editTarget.value = null;
   }
 
-  function isOverhaulSeason(value: string, contractYear: number) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isInteger(contractYear)) return false;
-    const [year, month, day] = value.split('-').map(Number);
-    const parsed = new Date(Date.UTC(year, month - 1, day));
-    if (
-      parsed.getUTCFullYear() !== year ||
-      parsed.getUTCMonth() !== month - 1 ||
-      parsed.getUTCDate() !== day
-    )
-      return false;
-    const start = `${contractYear}-11-01`;
-    const end = `${contractYear + 1}-02-${new Date(Date.UTC(contractYear + 1, 2, 0)).getUTCDate().toString().padStart(2, '0')}`;
-    return value >= start && value <= end;
-  }
   async function addOverhaul() {
     if (bikeLabel(newOverhaulBike.value) !== overhaulBikeSearch.value) {
       notice.value = '顧客・自転車は候補から選択してください。';
