@@ -3,6 +3,7 @@
   import AppSidebar from './components/layout/AppSidebar.vue';
   import AppHeader from './components/layout/AppHeader.vue';
   import DashboardView from './components/dashboard/DashboardView.vue';
+  import BikeContractsView from './components/bikes/BikeContractsView.vue';
   import { apiGet, apiPost, apiPut } from './api';
   import type { Page, Status, Plan, Bike, Work, EventCheck, History } from './types';
   import { pageTitles } from './constants/pages';
@@ -684,6 +685,43 @@
   const customerBikes = computed(() => bikes.value.filter((b) => b.customer === '山田 太郎'));
   const bikeCountForCustomer = (name: string) =>
     bikes.value.filter((b) => b.customer === name).length;
+  const bikeContractRows = computed(() =>
+    sortByDate(
+      bikes.value
+        .filter((b) => {
+          const plan = planFor(b);
+          const shopName = shops.value.find((shop) => shop.id === b.shopId)?.name ?? '';
+          return matches(
+            searchBikes.value,
+            b.customer,
+            b.model,
+            b.maker,
+            b.serial,
+            plan.name,
+            shopName,
+            b.receptionist
+          );
+        })
+        .map((bike) => {
+          const plan = planFor(bike);
+          return {
+            bike,
+            planName: plan.name,
+            overhaulCount: plan.overhaulCount,
+            maintenanceCount: plan.maintenanceCount,
+            inspectionCount: plan.inspectionCount,
+            shopName: shops.value.find((shop) => shop.id === bike.shopId)?.name ?? '',
+            customerBikeCount: bikeCountForCustomer(bike.customer),
+            overhaulRemaining: remaining(bike, 'overhaul'),
+            maintenanceRemaining: remaining(bike, 'maintenance'),
+            inspectionRemaining: remaining(bike, 'inspection'),
+          };
+        }),
+      'bikes',
+      (row) => row.bike.contractStart,
+      (row) => row.bike.customer
+    )
+  );
   function setPage(p: Page) {
     page.value = p;
     notice.value = '';
@@ -1334,96 +1372,21 @@
             ※
             追加したプランは年間契約登録時のプラン選択肢に反映されます。既存契約のプラン内容は、新しいプランを追加しても変更されません。
           </div></template
-        ><template v-else-if="page === 'bikes'"
-          ><div class="page-heading">
-            <div>
-              <p class="eyebrow">CUSTOMERS & BICYCLES</p>
-              <h1>顧客・自転車・契約管理</h1>
-              <p class="sub">自転車ごとに年間プランと契約期間、各サービスの残回数を管理します。</p>
-            </div>
-            <button class="primary" @click="showContractModal = true">＋ 年間契約を登録</button>
-          </div>
-          <div class="callout">
-            <b>年間契約の登録と管理をこの画面に集約</b>
-            <p>
-              新しい契約は「年間契約を登録」から追加できます。契約期間は12月1日〜翌年11月30日、受付期限は契約開始年の12月31日です。登録後はオーバーホールの受付・実施予定を設定します。
-            </p>
-          </div>
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>年間契約一覧</h2>
-                <p>{{ customers.length }}名・{{ bikes.length }}台の自転車が登録されています</p>
-              </div>
-              <input
-                class="search"
-                v-model="searchBikes"
-                placeholder="顧客・自転車・プラン・店舗で検索"
-              /><span class="count">契約期間：12月1日〜翌年11月30日</span>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('bikes', 'customer')">
-                        顧客・自転車 {{ sortLabel('bikes', 'customer') }}
-                      </button>
-                    </th>
-                    <th>契約プラン</th>
-                    <th>契約期間</th>
-                    <th>担当店舗・受付</th>
-                    <th>OH残</th>
-                    <th>メンテ残</th>
-                    <th>点検残</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="b in sortByDate(
-                      bikes.filter((x) =>
-                        matches(
-                          searchBikes,
-                          x.customer,
-                          x.model,
-                          x.maker,
-                          x.model,
-                          x.serial,
-                          planFor(x).name,
-                          shops.find((sh) => sh.id === x.shopId)?.name,
-                          x.receptionist
-                        )
-                      ),
-                      'bikes',
-                      (x) => x.contractStart,
-                      (x) => x.customer
-                    )"
-                    :key="b.id"
-                  >
-                    <td>
-                      <button class="customer-link" @click="openCustomerDetail(b.customer)">
-                        {{ b.customer }}
-                        <small v-if="bikeCountForCustomer(b.customer) > 1" class="multi-bike-tag"
-                          >{{ bikeCountForCustomer(b.customer) }}台契約</small
-                        ></button
-                      ><small class="cell-sub">{{ b.maker }} {{ b.model }}</small>
-                    </td>
-                    <td>{{ planFor(b).name }}</td>
-                    <td>{{ b.contractStart }}〜{{ b.contractEnd }}</td>
-                    <td>{{ shops.find((x) => x.id === b.shopId)?.name }} / {{ b.receptionist }}</td>
-                    <td>{{ remaining(b, 'overhaul') }}/{{ planFor(b).overhaulCount }}</td>
-                    <td>{{ remaining(b, 'maintenance') }}/{{ planFor(b).maintenanceCount }}</td>
-                    <td>{{ remaining(b, 'inspection') }}/{{ planFor(b).inspectionCount }}</td>
-                    <td>
-                      <button class="outline small" @click="openBikeDetail(b.id)">詳細</button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section></template
-        ><template v-else-if="page === 'overhaul'"
+        ><template v-else-if="page === 'bikes'">
+          <BikeContractsView
+            :customers-count="customers.length"
+            :bikes-count="bikes.length"
+            :search-text="searchBikes"
+            :sort-label="sortLabel('bikes', 'customer')"
+            :rows="bikeContractRows"
+            @update:search-text="searchBikes = $event"
+            @sort="toggleListSort('bikes', 'customer')"
+            @add-contract="showContractModal = true"
+            @open-customer="openCustomerDetail"
+            @open-bike="openBikeDetail"
+          />
+        </template>
+        <template v-else-if="page === 'overhaul'"
           ><div class="page-heading">
             <div>
               <p class="eyebrow">OVERHAUL MANAGEMENT</p>
