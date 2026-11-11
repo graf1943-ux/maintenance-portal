@@ -1,312 +1,3218 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { apiGet, apiPost, apiPut } from './api'
-const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true'
-const dataSourceStatus=ref<'mock'|'api'|'error'>(USE_MOCK_DATA?'mock':'api')
-const dataSourceLabel = USE_MOCK_DATA ? 'MOCK DATA' : 'API MODE'
-type Page='dashboard'|'bikes'|'shops'|'plans'|'overhaul'|'maintenance'|'events'|'history'|'messages'|'mypage'
-type Status='予定'|'案内待ち'|'案内済み'|'予約済み'|'作業中'|'完了'|'キャンセル'
-type Plan={id:number;name:string;overhaulCount:number;maintenanceCount:number;inspectionCount:number}
-type Bike={id:number;customer:string;maker:string;model:string;year:number;serial:string;planId:number;contractStart:string;contractEnd:string;overhaulUsed:number;maintenanceUsed:number;inspectionUsed:number;overhaulCompleted:string;shopId:number;receptionist:string}
-type Work={id:number;bikeId:number;date:string;endDate?:string;status:Status;title:string;detail:string;shopId:number;receptionist:string}
-type EventCheck={id:number;bikeId:number;name:string;eventDate:string;inspectionDate:string;endDate?:string;status:Status;memo:string;shopId:number;receptionist:string}
-type History={id:number;bikeId:number;date:string;startDate?:string;category:string;title:string;detail:string;memo?:string}
-const page=ref<Page>('dashboard'),role=ref<'staff'|'customer'>('staff'),selectedBikeId=ref(1),notice=ref(''),showMail=ref(false),mailTarget=ref('山田 太郎'),mailKind=ref('メンテナンスのご案内')
-const showContractModal=ref(false),showShopModal=ref(false),showStaffModal=ref(false),showPlanModal=ref(false),showOverhaulModal=ref(false),showMaintenanceModal=ref(false),showEventModal=ref(false)
-const showCustomerDetail=ref(false),showBikeDetail=ref(false),selectedCustomerName=ref(''),selectedBikeFilter=ref<number|null>(null)
-// 一覧用の顧客名・自転車名フィルター。候補一覧を開かず、部分一致で直接絞り込みます。
-const customerFilterText=ref(''),bikeFilterText=ref('')
-const today='2026年11月10日（火）'
-// 一覧ごとのキーワード検索。顧客名・自転車・作業名・店舗・担当者などを横断して検索します。
-const searchShops=ref(''),searchBikes=ref(''),searchOverhauls=ref(''),searchMaintenance=ref(''),searchEvents=ref(''),searchHistory=ref(''),searchMessages=ref(''),searchMyPage=ref('')
-function matches(query:string,...values:unknown[]){const q=query.trim().toLocaleLowerCase();return !q||values.some(v=>String(v??'').toLocaleLowerCase().includes(q))}
-function matchesBikeFilter(bikeId:number){const bike=bikes.value.find(b=>b.id===bikeId);return (!selectedBikeFilter.value||bikeId===selectedBikeFilter.value)&&matches(customerFilterText.value,bike?.customer)&&matches(bikeFilterText.value,bike?.maker,bike?.model,bike?.serial)}
-function clearBikeNameFilters(){customerFilterText.value='';bikeFilterText.value='';selectedBikeFilter.value=null}
-// 一覧ごとに日付・顧客名・状態を昇順／降順で並び替えます。初期表示は日付昇順です。
-type SortField='date'|'customer'|'status'
-type SortDirection='asc'|'desc'
-const listSort=ref<Record<string,{field:SortField;direction:SortDirection}>>({})
-function toggleListSort(key:string,field:SortField){const current=listSort.value[key];listSort.value[key]=current?.field===field?{field,direction:current.direction==='asc'?'desc':'asc'}:{field,direction:'asc'}}
-function sortByDate<T>(items:T[],key:string,getDate:(item:T)=>string,getCustomer?:(item:T)=>string,getStatus?:(item:T)=>string){const sort=listSort.value[key]??{field:'date' as SortField,direction:'asc' as SortDirection};const getter=sort.field==='customer'?getCustomer:sort.field==='status'?getStatus:getDate;const direction=sort.direction;return [...items].sort((a,b)=>{const result=(getter?.(a)??'').localeCompare(getter?.(b)??'', 'ja',{numeric:true});return direction==='asc'?result:-result})}
-function sortLabel(key:string,field:SortField){const sort=listSort.value[key];if(sort?.field!==field)return '↕';return sort.direction==='desc'?'▼':'▲'}
-const shops=ref<{id:number;name:string;address:string;phone:string}[]>([
-{id:1,name:'金沢本店',address:'石川県金沢市',phone:'076-000-0001'},
-{id:2,name:'富山店',address:'富山県富山市',phone:'076-000-0002'},
-])
-const staff=ref<{id:number;shopId:number;name:string;role:string}[]>([
-{id:1,shopId:1,name:'田中',role:'受付担当'},
-{id:2,shopId:1,name:'山本',role:'メカニック'},
-{id:3,shopId:2,name:'佐々木',role:'受付担当'},
-])
-const newShopName=ref(''),newShopAddress=ref(''),newShopPhone=ref(''),newStaffName=ref(''),newStaffShop=ref(1)
-const contractForm=ref({customer:'山田 太郎',maker:'SPECIALIZED',model:'Tarmac SL8',year:2026,serial:'',planId:1,applicationDate:'2026-12-15',start:'2026-12-01',shopId:1,receptionist:'田中'})
-const editTarget=ref<{kind:'maintenance'|'event'|'overhaul';id:number}|null>(null),editDate=ref(''),editEndDate=ref(''),editTitle=ref(''),editDetail=ref(''),editReceptionist=ref('')
-const completionTarget=ref<{kind:'maintenance'|'event'|'overhaul';id:number}|null>(null),completionMemo=ref(''),completionDate=ref('2026-11-10')
-const customers=ref<{id:number;name:string;email:string;phone?:string}[]>([
-{id:1,name:'山田 太郎',email:'t.yamada@example.com',phone:'090-0000-0001'},
-{id:2,name:'佐藤 花子',email:'h.sato@example.com',phone:'090-0000-0002'},
-{id:3,name:'鈴木 一郎',email:'i.suzuki@example.com',phone:'090-0000-0003'},
-])
-const plans=ref<Plan[]>([
-{id:1,name:'プレミアムプラン',overhaulCount:1,maintenanceCount:4,inspectionCount:3},
-{id:2,name:'スタンダードプラン',overhaulCount:1,maintenanceCount:3,inspectionCount:2},
-{id:3,name:'ライトプラン',overhaulCount:1,maintenanceCount:2,inspectionCount:1},
-])
-const newPlan=ref({name:'',overhaulCount:1,maintenanceCount:2,inspectionCount:1})
-async function addPlan(){const name=newPlan.value.name.trim();if(!name){notice.value='プラン名を入力してください。';return}const counts=[newPlan.value.overhaulCount,newPlan.value.maintenanceCount,newPlan.value.inspectionCount];if(counts.some(n=>!Number.isInteger(n)||n<0)){notice.value='各回数は0以上の整数で入力してください。';return}const ok=await apiAction(()=>apiPost('/plans',{...newPlan.value,name}), 'プランを追加しました。顧客・自転車・契約管理画面から選択できます。');if(ok){newPlan.value={name:'',overhaulCount:1,maintenanceCount:2,inspectionCount:1};showPlanModal.value=false}}
-
-const bikes=ref<Bike[]>([
-{id:1,customer:'山田 太郎',maker:'SPECIALIZED',model:'Tarmac SL8 Expert',year:2025,serial:'WSBC0250A001',planId:1,contractStart:'2026/12/01',contractEnd:'2027/11/30',overhaulUsed:0,maintenanceUsed:1,inspectionUsed:1,overhaulCompleted:'',shopId:1,receptionist:'田中'},
-{id:2,customer:'佐藤 花子',maker:'TREK',model:'Madone SL 7',year:2024,serial:'WTU12345678',planId:2,contractStart:'2026/12/01',contractEnd:'2027/11/30',overhaulUsed:0,maintenanceUsed:0,inspectionUsed:0,overhaulCompleted:'',shopId:1,receptionist:'田中'},
-{id:3,customer:'鈴木 一郎',maker:'GIANT',model:'TCR Advanced Pro',year:2023,serial:'GNT2023-0088',planId:3,contractStart:'2026/12/01',contractEnd:'2027/11/30',overhaulUsed:1,maintenanceUsed:2,inspectionUsed:0,overhaulCompleted:'2027/01/15',shopId:2,receptionist:'佐々木'},
-{id:4,customer:'山田 太郎',maker:'CANYON',model:'Speedmax CF 7',year:2025,serial:'CNY-SM-2025-014',planId:2,contractStart:'2026/12/01',contractEnd:'2027/11/30',overhaulUsed:0,maintenanceUsed:1,inspectionUsed:0,overhaulCompleted:'',shopId:1,receptionist:'田中'},
-])
-const planFor=(b:Bike)=>plans.value.find(p=>p.id===b.planId)??plans.value[0]??({id:0,name:'未設定',overhaulCount:0,maintenanceCount:0,inspectionCount:0} as Plan)
-const overhauls=ref<Work[]>([
-{id:1,bikeId:1,date:'2027/01/15',endDate:'2027/01/16',status:'作業中',title:'年間オーバーホール',detail:'全体オーバーホール・消耗品点検',shopId:1,receptionist:'田中'},
-{id:2,bikeId:2,date:'2027/02/05',status:'予約済み',title:'年間オーバーホール',detail:'納車後初回オーバーホール',shopId:1,receptionist:'田中'},
-{id:3,bikeId:3,date:'2027/01/15',endDate:'2027/01/16',status:'完了',title:'年間オーバーホール',detail:'駆動系洗浄・ワイヤー交換',shopId:2,receptionist:'佐々木'},
-{id:4,bikeId:4,date:'2027/02/12',status:'予定',title:'年間オーバーホール',detail:'専用コクピット・油圧ブレーキ・駆動系点検',shopId:1,receptionist:'田中'},
-])
-const maintenance=ref<Work[]>([
-{id:1,bikeId:1,date:'2027/04/10',endDate:'2027/04/10',status:'完了',title:'春の目標イベント前メンテナンス',detail:'駆動系・変速・ブレーキ調整',shopId:1,receptionist:'田中'},
-{id:2,bikeId:1,date:'2027/06/05',status:'予定',title:'夏季メインイベントに向けたメンテナンス',detail:'消耗品・ホイール・ポジション確認',shopId:1,receptionist:'田中'},
-{id:3,bikeId:3,date:'2027/05/20',endDate:'2027/05/21',status:'完了',title:'シーズン前メンテナンス',detail:'変速・ブレーキ・タイヤ点検',shopId:2,receptionist:'佐々木'},
-{id:4,bikeId:3,date:'2027/08/01',endDate:'2027/08/01',status:'完了',title:'夏季イベント前メンテナンス',detail:'チェーン清掃・注油・各部増し締め',shopId:2,receptionist:'佐々木'},
-{id:5,bikeId:4,date:'2027/06/12',status:'予定',title:'TTイベント前ポジション・機材確認',detail:'エアロポジション・変速・ブレーキ・タイヤ確認',shopId:1,receptionist:'田中'},
-])
-const eventChecks=ref<EventCheck[]>([
-{id:1,bikeId:1,name:'シーズン開幕ロードレース',eventDate:'2027/04/18',inspectionDate:'2027/04/14',endDate:'2027/04/15',status:'作業中',memo:'イベント直前の安全確認',shopId:1,receptionist:'田中'},
-{id:2,bikeId:1,name:'夏のメインイベント',eventDate:'2027/07/25',inspectionDate:'2027/07/21',status:'予定',memo:'タイヤ・ブレーキ・締結確認',shopId:1,receptionist:'田中'},
-{id:3,bikeId:2,name:'冬季サイクルイベント',eventDate:'2027/12/10',inspectionDate:'2027/12/07',status:'予定',memo:'次年度契約のイベント予定例',shopId:1,receptionist:'田中'},
-{id:4,bikeId:4,name:'夏季TTメインイベント',eventDate:'2027/06/20',inspectionDate:'2027/06/16',status:'予定',memo:'TTポジション・ホイール・ブレーキの事前確認',shopId:1,receptionist:'田中'},
-])
-const histories=ref<History[]>([
-{id:1,bikeId:1,date:'2027/04/10',category:'メンテナンス',title:'春の目標イベント前メンテナンス',detail:'駆動系・変速・ブレーキ調整'},
-{id:2,bikeId:3,date:'2027/01/15',category:'オーバーホール',title:'年間オーバーホール',detail:'駆動系洗浄・ワイヤー交換'},
-{id:3,bikeId:3,date:'2027/05/20',category:'メンテナンス',title:'シーズン前メンテナンス',detail:'変速・ブレーキ・タイヤ点検'},
-{id:4,bikeId:3,date:'2027/08/01',category:'メンテナンス',title:'夏季イベント前メンテナンス',detail:'チェーン清掃・注油・各部増し締め'},
-{id:5,bikeId:4,date:'2027/05/18',category:'メンテナンス',title:'初回メンテナンス',detail:'ポジション・変速・ブレーキ調整',memo:'左右パッドクリアランスを再確認'},
-])
-type ApiBike = {id:number;customerId:number;customer:string;maker:string;model:string;year:number;serial:string;contractStart?:string|null;contractEnd?:string|null;overhaulUsed:number;maintenanceUsed:number;inspectionUsed:number;plan?:Plan|null;shopId?:number|null;receptionistId?:number|null}
-const dateSlash=(v?:string|null)=>v?String(v).slice(0,10).replace(/-/g,'/'):''
-const dateIso=(v?:string|null)=>v?String(v).slice(0,10).replace(/\//g,'-'):''
-const receptionistName=(id:number)=>staff.value.find(x=>x.id===id)?.name??''
-function mapBike(x:ApiBike):Bike{return {id:x.id,customer:x.customer,maker:x.maker,model:x.model,year:x.year,serial:x.serial,planId:x.plan?.id??1,contractStart:dateSlash(x.contractStart),contractEnd:dateSlash(x.contractEnd),overhaulUsed:x.overhaulUsed,maintenanceUsed:x.maintenanceUsed,inspectionUsed:x.inspectionUsed,overhaulCompleted:'',shopId:x.shopId??1,receptionist:receptionistName(x.receptionistId??0)}}
-function mapWork(x:any):Work{return {id:x.id,bikeId:x.bikeId,date:dateSlash(x.startDate),endDate:dateSlash(x.endDate),status:x.status as Status,title:x.title,detail:x.detail,shopId:x.shopId,receptionist:x.receptionist??receptionistName(x.receptionistId)}}
-function mapEvent(x:any):EventCheck{return {id:x.id,bikeId:x.bikeId,name:x.name,eventDate:dateSlash(x.eventDate),inspectionDate:dateSlash(x.inspectionStartDate),endDate:dateSlash(x.inspectionEndDate),status:x.status,memo:x.memo,shopId:x.shopId,receptionist:receptionistName(x.receptionistId)}}
-async function reloadData(){
-  if(USE_MOCK_DATA)return
-  const [c,sh,st,pl,b,oh,ma,ev,hi]=await Promise.all([
-    apiGet<any[]>('/customers'),apiGet<any[]>('/shops'),apiGet<any[]>('/staff'),apiGet<Plan[]>('/plans'),apiGet<ApiBike[]>('/bikes'),apiGet<any[]>('/overhauls'),apiGet<any[]>('/maintenance'),apiGet<any[]>('/events'),apiGet<any[]>('/history')
-  ])
-  customers.value=c; shops.value=sh; staff.value=st; plans.value=pl; bikes.value=b.map(mapBike)
-  overhauls.value=oh.map(mapWork); maintenance.value=ma.map(mapWork); eventChecks.value=ev.map(mapEvent)
-  histories.value=hi.map((x:any)=>({id:x.id,bikeId:x.bikeId,date:dateSlash(x.date),startDate:dateSlash(x.startDate),category:x.category,title:x.title,detail:x.detail,memo:x.memo??''}))
-}
-onMounted(async()=>{
-  if(USE_MOCK_DATA){notice.value='Vue内のモックデータを表示しています。APIへの通信は行いません。';return}
-  // APIモードではVue側の初期モック値を消し、API取得結果だけを表示します。
-  customers.value=[];shops.value=[];staff.value=[];plans.value=[];bikes.value=[];overhauls.value=[];maintenance.value=[];eventChecks.value=[];histories.value=[]
-  try{await reloadData();notice.value='バックエンドAPIに接続しました。'}catch(e){dataSourceStatus.value='error';notice.value=`APIに接続できません。モックデータへの自動切替は行いません。${e instanceof Error?` (${e.message})`:''}`}
-})
-async function apiAction(action:()=>Promise<unknown>,success:string){if(USE_MOCK_DATA){notice.value='現在はVueモックデータ表示モードです。登録・更新操作はAPIモードで行ってください。';return false}try{await action();await reloadData();dataSourceStatus.value='api';notice.value=success;return true}catch(e){dataSourceStatus.value='error';notice.value=e instanceof Error?e.message:'API処理に失敗しました。';return false}}
-const newOverhaulBike=ref(1),newOverhaulReceptionDate=ref('2026-12-15'),newOverhaulDate=ref('2027-01-15'),newOverhaulEndDate=ref('2027-01-16'),newOverhaulTitle=ref('年間オーバーホール'),newOverhaulDetail=ref('全体点検・消耗品確認・駆動系整備')
-const newWorkBike=ref(1),newWorkDate=ref('2027-07-01'),newWorkEndDate=ref('2027-07-01'),newWorkTitle=ref('メインイベントに向けたメンテナンス'),newWorkDetail=ref('イベントに向けた状態確認・調整')
-const newEventBike=ref(1),newEventName=ref(''),newEventDate=ref('2027-08-01'),newInspectionDate=ref('2027-07-28'),newInspectionEndDate=ref('2027-07-28')
-function bikeLabel(id:number){const b=bikes.value.find(x=>x.id===id);return b?`${b.customer} / ${b.maker} ${b.model}`:''}
-function setBikeFromLabel(label:string,target:'overhaul'|'maintenance'|'event'){const b=bikes.value.find(x=>bikeLabel(x.id)===label);if(!b)return;if(target==='overhaul')newOverhaulBike.value=b.id;else if(target==='maintenance')newWorkBike.value=b.id;else newEventBike.value=b.id}
-const overhaulBikeSearch=ref(bikeLabel(newOverhaulBike.value)),maintenanceBikeSearch=ref(bikeLabel(newWorkBike.value)),eventBikeSearch=ref(bikeLabel(newEventBike.value))
-const selectedBike=computed(()=>bikes.value.find(b=>b.id===selectedBikeId.value)??bikes.value[0]??({id:0,customer:'',maker:'',model:'',year:0,serial:'',planId:0,contractStart:'',contractEnd:'',overhaulUsed:0,maintenanceUsed:0,inspectionUsed:0,overhaulCompleted:'',shopId:0,receptionist:''} as Bike))
-const selectedCustomerBikes=computed(()=>bikes.value.filter(b=>b.customer===selectedCustomerName.value))
-const selectedCustomer=computed(()=>customers.value.find(c=>c.name===selectedCustomerName.value))
-const selectedCustomerWorks=computed(()=>[...overhauls.value.filter(w=>selectedCustomerBikes.value.some(b=>b.id===w.bikeId)).map(w=>({...w,kind:'オーバーホール'})),...maintenance.value.filter(w=>selectedCustomerBikes.value.some(b=>b.id===w.bikeId)).map(w=>({...w,kind:'メンテナンス'})),...eventChecks.value.filter(w=>selectedCustomerBikes.value.some(b=>b.id===w.bikeId)).map(w=>({...w,date:w.inspectionDate,title:w.name,kind:'点検サポート'}))].sort((a,b)=>a.date.localeCompare(b.date)))
-const selectedCustomerHistories=computed(()=>histories.value.filter(h=>selectedCustomerBikes.value.some(b=>b.id===h.bikeId)).sort((a,b)=>b.date.localeCompare(a.date)))
-function openCustomerDetail(name:string){selectedCustomerName.value=name;showCustomerDetail.value=true}
-function openCustomerBikeRegistration(kind:'overhaul'|'maintenance'|'event',bike:Bike){
-  // 登録フォームは顧客詳細モーダルに重ねず、該当する管理画面上で単独表示します。
-  // 顧客・自転車の選択状態を引き継ぎ、キャンセル時も管理画面に留まります。
-  openCustomerBikePage(kind==='event'?'events':kind,bike.id)
-  if(kind==='overhaul'){
-    newOverhaulBike.value=bike.id
-    overhaulBikeSearch.value=bikeLabel(bike.id)
-    const year=Number(bike.contractStart.slice(0,4))
-    newOverhaulReceptionDate.value=`${year}-12-15`
-    newOverhaulDate.value=`${year+1}-01-15`
-    newOverhaulEndDate.value=`${year+1}-01-16`
-    showOverhaulModal.value=true
-  }else if(kind==='maintenance'){
-    newWorkBike.value=bike.id
-    maintenanceBikeSearch.value=bikeLabel(bike.id)
-    newWorkDate.value='2027-07-01'
-    newWorkEndDate.value='2027-07-01'
-    showMaintenanceModal.value=true
-  }else{
-    newEventBike.value=bike.id
-    eventBikeSearch.value=bikeLabel(bike.id)
-    newEventName.value=''
-    newEventDate.value='2027-08-01'
-    newInspectionDate.value='2027-07-28'
-    newInspectionEndDate.value='2027-07-28'
-    showEventModal.value=true
+  import { computed, onMounted, ref } from 'vue';
+  import { apiGet, apiPost, apiPut } from './api';
+  const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true';
+  const dataSourceStatus = ref<'mock' | 'api' | 'error'>(USE_MOCK_DATA ? 'mock' : 'api');
+  const dataSourceLabel = USE_MOCK_DATA ? 'MOCK DATA' : 'API MODE';
+  type Page =
+    | 'dashboard'
+    | 'bikes'
+    | 'shops'
+    | 'plans'
+    | 'overhaul'
+    | 'maintenance'
+    | 'events'
+    | 'history'
+    | 'messages'
+    | 'mypage';
+  const pageTitles: Record<Page, string> = {
+    dashboard: 'ダッシュボード',
+    bikes: '顧客・自転車・契約管理',
+    shops: '店舗・担当者管理',
+    plans: 'プラン設定',
+    overhaul: 'オーバーホール',
+    maintenance: 'メンテナンス計画',
+    events: '目標イベント・点検',
+    history: 'メンテナンス履歴',
+    messages: '連絡・メール管理',
+    mypage: 'マイページ',
+  };
+  type Status = '予定' | '案内待ち' | '案内済み' | '予約済み' | '作業中' | '完了' | 'キャンセル';
+  type Plan = {
+    id: number;
+    name: string;
+    overhaulCount: number;
+    maintenanceCount: number;
+    inspectionCount: number;
+  };
+  type Bike = {
+    id: number;
+    customer: string;
+    maker: string;
+    model: string;
+    year: number;
+    serial: string;
+    planId: number;
+    contractStart: string;
+    contractEnd: string;
+    overhaulUsed: number;
+    maintenanceUsed: number;
+    inspectionUsed: number;
+    overhaulCompleted: string;
+    shopId: number;
+    receptionist: string;
+  };
+  type Work = {
+    id: number;
+    bikeId: number;
+    date: string;
+    endDate?: string;
+    status: Status;
+    title: string;
+    detail: string;
+    shopId: number;
+    receptionist: string;
+  };
+  type EventCheck = {
+    id: number;
+    bikeId: number;
+    name: string;
+    eventDate: string;
+    inspectionDate: string;
+    endDate?: string;
+    status: Status;
+    memo: string;
+    shopId: number;
+    receptionist: string;
+  };
+  type History = {
+    id: number;
+    bikeId: number;
+    date: string;
+    startDate?: string;
+    category: string;
+    title: string;
+    detail: string;
+    memo?: string;
+  };
+  const page = ref<Page>('dashboard'),
+    role = ref<'staff' | 'customer'>('staff'),
+    selectedBikeId = ref(1),
+    notice = ref(''),
+    showMail = ref(false),
+    mailTarget = ref('山田 太郎'),
+    mailKind = ref('メンテナンスのご案内');
+  const showContractModal = ref(false),
+    showShopModal = ref(false),
+    showStaffModal = ref(false),
+    showPlanModal = ref(false),
+    showOverhaulModal = ref(false),
+    showMaintenanceModal = ref(false),
+    showEventModal = ref(false);
+  const showCustomerDetail = ref(false),
+    showBikeDetail = ref(false),
+    selectedCustomerName = ref(''),
+    selectedBikeFilter = ref<number | null>(null);
+  // 一覧用の顧客名・自転車名フィルター。候補一覧を開かず、部分一致で直接絞り込みます。
+  const customerFilterText = ref(''),
+    bikeFilterText = ref('');
+  const today = '2026年11月10日（火）';
+  // 一覧ごとのキーワード検索。顧客名・自転車・作業名・店舗・担当者などを横断して検索します。
+  const searchShops = ref(''),
+    searchBikes = ref(''),
+    searchOverhauls = ref(''),
+    searchMaintenance = ref(''),
+    searchEvents = ref(''),
+    searchHistory = ref(''),
+    searchMessages = ref(''),
+    searchMyPage = ref('');
+  function matches(query: string, ...values: unknown[]) {
+    const q = query.trim().toLocaleLowerCase();
+    return (
+      !q ||
+      values.some((v) =>
+        String(v ?? '')
+          .toLocaleLowerCase()
+          .includes(q)
+      )
+    );
   }
-  notice.value=`${bike.customer} 様の ${bike.maker} ${bike.model} を登録対象に設定しました。`
-}
-function openBikeDetail(bikeId:number){selectedBikeId.value=bikeId;showBikeDetail.value=true}
-function openCustomerBikePage(target:'overhaul'|'maintenance'|'events'|'history',bikeId:number){
-  selectedBikeId.value=bikeId
-  selectedBikeFilter.value=target==='history'?null:bikeId
-  customerFilterText.value='';bikeFilterText.value=''
-  searchOverhauls.value='';searchMaintenance.value='';searchEvents.value='';searchHistory.value=''
-  page.value=target
-  showCustomerDetail.value=false
-}
-function openCustomerWork(item:{kind:string;bikeId:number}){
-  const target=item.kind==='オーバーホール'?'overhaul':item.kind==='点検サポート'?'events':'maintenance'
-  openCustomerBikePage(target,item.bikeId)
-}
-const remaining=(b:Bike,kind:'maintenance'|'inspection'|'overhaul')=>{const p=planFor(b);const used=kind==='maintenance'?b.maintenanceUsed:kind==='inspection'?b.inspectionUsed:b.overhaulUsed;const limit=kind==='maintenance'?p.maintenanceCount:kind==='inspection'?p.inspectionCount:p.overhaulCount;return Math.max(0,limit-used)}
-// 契約枠のうち、完了済み回数と未完了の予定回数を差し引いた新規登録可能数。キャンセルは枠を解放します。
-const activeScheduleCount=(bikeId:number,kind:'maintenance'|'inspection'|'overhaul')=>{const active=(items:{bikeId:number;status:Status}[])=>items.filter(x=>x.bikeId===bikeId&&x.status!=='完了'&&x.status!=='キャンセル').length;return kind==='overhaul'?active(overhauls.value):kind==='maintenance'?active(maintenance.value):active(eventChecks.value)}
-const scheduleRemaining=(b:Bike,kind:'maintenance'|'inspection'|'overhaul')=>Math.max(0,remaining(b,kind)-activeScheduleCount(b.id,kind))
-const completedCount=computed(()=>histories.value.length),upcomingCount=computed(()=>overhauls.value.filter(x=>x.status!=='完了'&&x.status!=='キャンセル').length+maintenance.value.filter(x=>x.status!=='完了'&&x.status!=='キャンセル').length+eventChecks.value.filter(x=>x.status!=='完了'&&x.status!=='キャンセル').length),pendingCount=computed(()=>maintenance.value.filter(x=>x.status==='案内待ち').length+eventChecks.value.filter(x=>x.status==='案内待ち').length)
-const allUpcoming=computed(()=>[
-...overhauls.value.filter(x=>x.status!=='完了'&&x.status!=='キャンセル').map(x=>({...x,kind:'オーバーホール'})),
-...maintenance.value.filter(x=>x.status!=='完了'&&x.status!=='キャンセル').map(x=>({...x,kind:'メンテナンス'})),
-...eventChecks.value.filter(x=>x.status!=='完了'&&x.status!=='キャンセル').map(x=>({...x,date:x.inspectionDate,title:x.name,kind:'イベント前点検'})),
-].sort((a,b)=>a.date.localeCompare(b.date)))
-const customerBikes=computed(()=>bikes.value.filter(b=>b.customer==='山田 太郎'))
-const bikeCountForCustomer=(name:string)=>bikes.value.filter(b=>b.customer===name).length
-function setPage(p:Page){page.value=p;notice.value=''}
-function addHistory(b:Bike,startDate:string,endDate:string,category:string,title:string,detail:string,memo=''){histories.value.unshift({id:Math.max(0,...histories.value.map(h=>h.id))+1,bikeId:b.id,startDate,date:endDate,category,title,detail,memo})}
-async function startWork(kind:'maintenance'|'event'|'overhaul',item:any){if(item.status==='完了'||item.status==='キャンセル')return;const staffMember=staff.value.find(x=>x.name===item.receptionist&&x.shopId===item.shopId)??staff.value.find(x=>x.shopId===item.shopId);if(!staffMember){notice.value='受付担当者を確認してください。';return}const ok=kind==='event'?await apiAction(()=>apiPut(`/events/${item.id}`,{id:item.id,bikeId:item.bikeId,name:item.name,eventDate:dateIso(item.eventDate),inspectionStartDate:dateIso(item.inspectionDate),inspectionEndDate:dateIso(item.endDate),status:'作業中',memo:item.memo,shopId:item.shopId,receptionistId:staffMember.id}),'点検を作業中に変更しました。'):await apiAction(()=>apiPut(`/work/${item.id}`,{startDate:dateIso(item.date),endDate:dateIso(item.endDate)||null,status:'作業中',title:item.title,detail:item.detail,receptionistId:staffMember.id}),'作業中に変更しました。')}
-function startCompletion(kind:'maintenance'|'event'|'overhaul',item:any){completionTarget.value={kind,id:item.id};completionMemo.value='';const suggested=item.endDate||(kind==='event'?item.inspectionDate:item.date);completionDate.value=suggested.replace(/\//g,'-')}
-async function confirmCompletion(){if(!completionTarget.value)return;const {kind,id}=completionTarget.value;const list:any=kind==='maintenance'?maintenance.value:kind==='event'?eventChecks.value:overhauls.value;const item=list.find((x:any)=>x.id===id);if(!item||item.status==='完了')return;const startDate=kind==='event'?item.inspectionDate:item.date;const endDate=completionDate.value;if(!endDate||endDate<startDate.replace(/\//g,'-')){notice.value='完了日は開始日以降の日付を指定してください。';return}const endpoint=kind==='event'?`/events/${id}/complete`:`/work/${id}/complete`;const ok=await apiAction(()=>apiPost(endpoint,{completedDate:endDate,memo:completionMemo.value}),kind==='event'?'点検サポートを完了し、点検回数を1回消費しました。':kind==='maintenance'?'メンテナンスを完了し、メンテナンス回数を1回消費しました。':'オーバーホールを完了しました。');if(ok){completionTarget.value=null;completionMemo.value=''}}
-
-async function addContract(){
-  if(USE_MOCK_DATA){
-    notice.value='現在はVueモックデータ表示モードです。年間契約の登録はAPIモードで行ってください。';
-    return
+  function matchesBikeFilter(bikeId: number) {
+    const bike = bikes.value.find((b) => b.id === bikeId);
+    return (
+      (!selectedBikeFilter.value || bikeId === selectedBikeFilter.value) &&
+      matches(customerFilterText.value, bike?.customer) &&
+      matches(bikeFilterText.value, bike?.maker, bike?.model, bike?.serial)
+    );
   }
-  const f=contractForm.value;
-  if(!f.start.endsWith('-12-01')){
-    notice.value='年間契約の開始日は12月1日にしてください。';
-    return
+  function clearBikeNameFilters() {
+    customerFilterText.value = '';
+    bikeFilterText.value = '';
+    selectedBikeFilter.value = null;
+  }
+  // 一覧ごとに日付・顧客名・状態を昇順／降順で並び替えます。初期表示は日付昇順です。
+  type SortField = 'date' | 'customer' | 'status';
+  type SortDirection = 'asc' | 'desc';
+  const listSort = ref<Record<string, { field: SortField; direction: SortDirection }>>({});
+  function toggleListSort(key: string, field: SortField) {
+    const current = listSort.value[key];
+    listSort.value[key] =
+      current?.field === field
+        ? { field, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+        : { field, direction: 'asc' };
+  }
+  function sortByDate<T>(
+    items: T[],
+    key: string,
+    getDate: (item: T) => string,
+    getCustomer?: (item: T) => string,
+    getStatus?: (item: T) => string
+  ) {
+    const sort = listSort.value[key] ?? {
+      field: 'date' as SortField,
+      direction: 'asc' as SortDirection,
+    };
+    const getter =
+      sort.field === 'customer' ? getCustomer : sort.field === 'status' ? getStatus : getDate;
+    const direction = sort.direction;
+    return [...items].sort((a, b) => {
+      const result = (getter?.(a) ?? '').localeCompare(getter?.(b) ?? '', 'ja', { numeric: true });
+      return direction === 'asc' ? result : -result;
+    });
+  }
+  function sortLabel(key: string, field: SortField) {
+    const sort = listSort.value[key];
+    if (sort?.field !== field) return '↕';
+    return sort.direction === 'desc' ? '▼' : '▲';
+  }
+  const shops = ref<{ id: number; name: string; address: string; phone: string }[]>([
+    { id: 1, name: '金沢本店', address: '石川県金沢市', phone: '076-000-0001' },
+    { id: 2, name: '富山店', address: '富山県富山市', phone: '076-000-0002' },
+  ]);
+  const staff = ref<{ id: number; shopId: number; name: string; role: string }[]>([
+    { id: 1, shopId: 1, name: '田中', role: '受付担当' },
+    { id: 2, shopId: 1, name: '山本', role: 'メカニック' },
+    { id: 3, shopId: 2, name: '佐々木', role: '受付担当' },
+  ]);
+  const newShopName = ref(''),
+    newShopAddress = ref(''),
+    newShopPhone = ref(''),
+    newStaffName = ref(''),
+    newStaffShop = ref(1);
+  const contractForm = ref({
+    customer: '山田 太郎',
+    maker: 'SPECIALIZED',
+    model: 'Tarmac SL8',
+    year: 2026,
+    serial: '',
+    planId: 1,
+    applicationDate: '2026-12-15',
+    start: '2026-12-01',
+    shopId: 1,
+    receptionist: '田中',
+  });
+  const editTarget = ref<{ kind: 'maintenance' | 'event' | 'overhaul'; id: number } | null>(null),
+    editDate = ref(''),
+    editEndDate = ref(''),
+    editTitle = ref(''),
+    editDetail = ref(''),
+    editReceptionist = ref('');
+  const completionTarget = ref<{ kind: 'maintenance' | 'event' | 'overhaul'; id: number } | null>(
+      null
+    ),
+    completionMemo = ref(''),
+    completionDate = ref('2026-11-10');
+  const customers = ref<{ id: number; name: string; email: string; phone?: string }[]>([
+    { id: 1, name: '山田 太郎', email: 't.yamada@example.com', phone: '090-0000-0001' },
+    { id: 2, name: '佐藤 花子', email: 'h.sato@example.com', phone: '090-0000-0002' },
+    { id: 3, name: '鈴木 一郎', email: 'i.suzuki@example.com', phone: '090-0000-0003' },
+  ]);
+  const plans = ref<Plan[]>([
+    { id: 1, name: 'プレミアムプラン', overhaulCount: 1, maintenanceCount: 4, inspectionCount: 3 },
+    {
+      id: 2,
+      name: 'スタンダードプラン',
+      overhaulCount: 1,
+      maintenanceCount: 3,
+      inspectionCount: 2,
+    },
+    { id: 3, name: 'ライトプラン', overhaulCount: 1, maintenanceCount: 2, inspectionCount: 1 },
+  ]);
+  const newPlan = ref({ name: '', overhaulCount: 1, maintenanceCount: 2, inspectionCount: 1 });
+  async function addPlan() {
+    const name = newPlan.value.name.trim();
+    if (!name) {
+      notice.value = 'プラン名を入力してください。';
+      return;
     }
-    const year=Number(f.start.slice(0,4));
-    if(!f.applicationDate||f.applicationDate.slice(0,4)!==String(year)||f.applicationDate>`${year}-12-31`){
-      notice.value='年間契約の受付期限は契約開始年の12月31日です。';
-      return
-      }
-      try{
-        const existingCustomer = customers.value.find(
-          x => x.name === f.customer
-        );
-
-        let customerId: number;
-
-        if (existingCustomer) {
-          customerId = existingCustomer.id;
-        } else {
-          const createdCustomer = await apiPost<any>('/customers', {
-            name: f.customer,
-            email: '',
-            phone: ''
-          });
-
-          customerId = createdCustomer.id;
-        }
-          const bike=await apiPost<ApiBike>('/bikes',{
-            id:0,customerId:customerId,maker:f.maker,model:f.model,year:f.year,serial:f.serial,activeContractId:null
-            });
-          const person=staff.value.find(x=>x.shopId===f.shopId&&x.name===f.receptionist)??staff.value.find(x=>x.shopId===f.shopId);
-          if(!person)
-          throw new Error('受付担当者を登録してください。');
-          await apiPost('/contracts',{bikeId:bike.id,planId:f.planId,applicationDate:f.applicationDate,startDate:f.start,shopId:f.shopId,receptionistId:person.id});
-          await reloadData();selectedBikeId.value=bike.id;newOverhaulBike.value=bike.id;overhaulBikeSearch.value=bikeLabel(bike.id);
-          newOverhaulReceptionDate.value=f.applicationDate;notice.value='年間契約を登録しました。次のステップとしてオーバーホールの受付・実施予定日を設定してください。';
-          page.value='overhaul';showContractModal.value=false;showOverhaulModal.value=true
-          }
-          catch(e){
-            notice.value=e instanceof Error?e.message:'年間契約の登録に失敗しました。'
-            }
-}
-async function addShop(){if(!newShopName.value.trim())return;const ok=await apiAction(()=>apiPost('/shops',{name:newShopName.value,address:newShopAddress.value,phone:newShopPhone.value}),'店舗を登録しました。');if(ok){newShopName.value='';newShopAddress.value='';newShopPhone.value='';showShopModal.value=false}}
-async function addStaff(){if(!newStaffName.value.trim())return;const ok=await apiAction(()=>apiPost('/staff',{shopId:newStaffShop.value,name:newStaffName.value,role:'受付担当'}),'受付担当者を登録しました。');if(ok){newStaffName.value='';showStaffModal.value=false}}
-
-function openEdit(kind:'maintenance'|'event'|'overhaul',item:any){editTarget.value={kind,id:item.id};editDate.value=(kind==='event'?item.inspectionDate:item.date).replace(/\//g,'-');editEndDate.value=(item.endDate||'').replace(/\//g,'-');editTitle.value=kind==='event'?item.name:item.title;editDetail.value=kind==='event'?item.memo:item.detail;editReceptionist.value=item.receptionist||'田中'}
-async function saveEdit(){if(!editTarget.value)return;const {kind,id}=editTarget.value;if(kind==='overhaul'){const itemBike=overhauls.value.find(x=>x.id===id);const contractBike=bikes.value.find(x=>x.id===itemBike?.bikeId);const contractYear=Number(contractBike?.contractStart.slice(0,4));if(!contractBike||!isOverhaulSeason(editDate.value,contractYear)||(editEndDate.value&&!isOverhaulSeason(editEndDate.value,contractYear))){notice.value='オーバーホールの実施予定日は契約開始年の11月1日〜翌年2月末の期間で設定してください。';return}}const list:any=kind==='maintenance'?maintenance.value:kind==='event'?eventChecks.value:overhauls.value;const item=list.find((x:any)=>x.id===id);if(!item)return;const person=staff.value.find(x=>x.name===editReceptionist.value&&x.shopId===item.shopId)??staff.value.find(x=>x.shopId===item.shopId);if(!person){notice.value='受付担当者を確認してください。';return}if(editEndDate.value&&editEndDate.value<editDate.value){notice.value='完了日は開始日以降の日付にしてください。';return}const ok=kind==='event'?await apiAction(()=>apiPut(`/events/${id}`,{id,bikeId:item.bikeId,name:editTitle.value,eventDate:dateIso(item.eventDate),inspectionStartDate:editDate.value,inspectionEndDate:editEndDate.value||null,status:item.status,memo:editDetail.value,shopId:item.shopId,receptionistId:person.id}),'予定内容を更新しました。契約回数は変更していません。'):await apiAction(()=>apiPut(`/work/${id}`,{startDate:editDate.value,endDate:editEndDate.value||null,status:item.status,title:editTitle.value,detail:editDetail.value,receptionistId:person.id}),'予定内容を更新しました。契約回数は変更していません。');if(ok)editTarget.value=null}
-
-function isOverhaulSeason(value:string,contractYear:number){if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isInteger(contractYear))return false;const [year,month,day]=value.split('-').map(Number);const parsed=new Date(Date.UTC(year,month-1,day));if(parsed.getUTCFullYear()!==year||parsed.getUTCMonth()!==month-1||parsed.getUTCDate()!==day)return false;const start=`${contractYear}-11-01`;const end=`${contractYear+1}-02-${new Date(Date.UTC(contractYear+1,2,0)).getUTCDate().toString().padStart(2,'0')}`;return value>=start&&value<=end}
-async function addOverhaul(){
-  if(bikeLabel(newOverhaulBike.value)!==overhaulBikeSearch.value){notice.value='顧客・自転車は候補から選択してください。';return}
-  const b=bikes.value.find(x=>x.id===newOverhaulBike.value)
-  if(!b){notice.value='登録対象の自転車を選択してください。';return}
-  if(scheduleRemaining(b,'overhaul')<=0){notice.value=`${b.maker} ${b.model} のオーバーホールは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`;return}
-  const receptionDate=newOverhaulReceptionDate.value,contractYear=Number(b.contractStart.slice(0,4))
-  if(!receptionDate||receptionDate>`${contractYear}-12-31`){notice.value='オーバーホールの受付期限は契約開始年の12月31日です。';return}
-  if(!isOverhaulSeason(newOverhaulDate.value,contractYear)||(newOverhaulEndDate.value&&!isOverhaulSeason(newOverhaulEndDate.value,contractYear))){notice.value='オーバーホールの実施予定日は契約開始年の11月1日〜翌年2月末の期間で設定してください。';return}
-  if(receptionDate>newOverhaulDate.value){notice.value='受付日は実施予定日以前の日付にしてください。同日での受付・実施は可能です。';return}
-  if(newOverhaulEndDate.value&&newOverhaulEndDate.value<newOverhaulDate.value){notice.value='完了予定日は開始予定日以降にしてください。';return}
-  const person=staff.value.find(x=>x.shopId===b.shopId&&x.name===b.receptionist)??staff.value.find(x=>x.shopId===b.shopId)
-  if(!person){notice.value='受付担当者を確認してください。';return}
-  if(USE_MOCK_DATA){
-    const item:Work={id:Math.max(0,...overhauls.value.map(x=>x.id))+1,bikeId:b.id,date:dateSlash(newOverhaulDate.value),endDate:newOverhaulEndDate.value?dateSlash(newOverhaulEndDate.value):undefined,status:'予定',title:newOverhaulTitle.value,detail:newOverhaulDetail.value,shopId:b.shopId,receptionist:person.name}
-    overhauls.value.unshift(item)
-    showOverhaulModal.value=false
-    dataSourceStatus.value='mock'
-    notice.value='オーバーホール予定をVueモックデータに登録しました。画面を再読み込みすると初期データに戻ります。'
-    return
+    const counts = [
+      newPlan.value.overhaulCount,
+      newPlan.value.maintenanceCount,
+      newPlan.value.inspectionCount,
+    ];
+    if (counts.some((n) => !Number.isInteger(n) || n < 0)) {
+      notice.value = '各回数は0以上の整数で入力してください。';
+      return;
+    }
+    const ok = await apiAction(
+      () => apiPost('/plans', { ...newPlan.value, name }),
+      'プランを追加しました。顧客・自転車・契約管理画面から選択できます。'
+    );
+    if (ok) {
+      newPlan.value = { name: '', overhaulCount: 1, maintenanceCount: 2, inspectionCount: 1 };
+      showPlanModal.value = false;
+    }
   }
-  const ok=await apiAction(()=>apiPost('/overhauls',{bikeId:b.id,startDate:newOverhaulDate.value,endDate:newOverhaulEndDate.value||null,title:newOverhaulTitle.value,detail:newOverhaulDetail.value,shopId:b.shopId,receptionistId:person.id}),'オーバーホール予定を登録しました。実施完了までは契約回数を消費しません。')
-  if(ok)showOverhaulModal.value=false
-}
-async function addMaintenance(){if(bikeLabel(newWorkBike.value)!==maintenanceBikeSearch.value){notice.value='顧客・自転車は候補から選択してください。';return}const b=bikes.value.find(x=>x.id===newWorkBike.value);if(!b)return;if(scheduleRemaining(b,'maintenance')<=0){notice.value=`${b.maker} ${b.model} のメンテナンスは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`;return}if(newWorkEndDate.value&&newWorkEndDate.value<newWorkDate.value){notice.value='完了予定日は開始予定日以降にしてください。';return}const person=staff.value.find(x=>x.shopId===b.shopId&&x.name===b.receptionist)??staff.value.find(x=>x.shopId===b.shopId);if(!person){notice.value='受付担当者を確認してください。';return}if(USE_MOCK_DATA){maintenance.value.unshift({id:Math.max(0,...maintenance.value.map(x=>x.id))+1,bikeId:b.id,date:dateSlash(newWorkDate.value),endDate:newWorkEndDate.value?dateSlash(newWorkEndDate.value):undefined,status:'予定',title:newWorkTitle.value,detail:newWorkDetail.value,shopId:b.shopId,receptionist:person.name});showMaintenanceModal.value=false;notice.value='メンテナンス計画をVueモックデータに登録しました。';return}const ok=await apiAction(()=>apiPost('/maintenance',{bikeId:b.id,startDate:newWorkDate.value,endDate:newWorkEndDate.value||null,title:newWorkTitle.value,detail:newWorkDetail.value,shopId:b.shopId,receptionistId:person.id}),'メンテナンス計画を追加しました。実施完了までは回数を消費しません。');if(ok)showMaintenanceModal.value=false}
-async function addEvent(){if(bikeLabel(newEventBike.value)!==eventBikeSearch.value){notice.value='顧客・自転車は候補から選択してください。';return}const b=bikes.value.find(x=>x.id===newEventBike.value);if(!b||!newEventName.value.trim()){notice.value='イベント名を入力してください。';return}if(scheduleRemaining(b,'inspection')<=0){notice.value=`${b.maker} ${b.model} の点検サポートは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`;return}if(newInspectionEndDate.value&&newInspectionEndDate.value<newInspectionDate.value){notice.value='点検完了予定日は開始予定日以降にしてください。';return}const person=staff.value.find(x=>x.shopId===b.shopId&&x.name===b.receptionist)??staff.value.find(x=>x.shopId===b.shopId);if(!person){notice.value='受付担当者を確認してください。';return}if(USE_MOCK_DATA){eventChecks.value.unshift({id:Math.max(0,...eventChecks.value.map(x=>x.id))+1,bikeId:b.id,name:newEventName.value,eventDate:dateSlash(newEventDate.value),inspectionDate:dateSlash(newInspectionDate.value),endDate:newInspectionEndDate.value?dateSlash(newInspectionEndDate.value):undefined,status:'予定',memo:'目標イベントに向けた点検サポート',shopId:b.shopId,receptionist:person.name});newEventName.value='';showEventModal.value=false;notice.value='イベント・点検予定をVueモックデータに登録しました。';return}const ok=await apiAction(()=>apiPost('/events',{bikeId:b.id,name:newEventName.value,eventDate:newEventDate.value,inspectionStartDate:newInspectionDate.value,inspectionEndDate:newInspectionEndDate.value||null,memo:'目標イベントに向けた点検サポート',shopId:b.shopId,receptionistId:person.id}),'目標イベントと点検予定を登録しました。');if(ok){newEventName.value='';showEventModal.value=false}}
 
-function sendMail(){showMail.value=false;notice.value=`${mailTarget.value} 様への「${mailKind.value}」を送信した想定のデモです（実際には送信されません）。`}
+  const bikes = ref<Bike[]>([
+    {
+      id: 1,
+      customer: '山田 太郎',
+      maker: 'SPECIALIZED',
+      model: 'Tarmac SL8 Expert',
+      year: 2025,
+      serial: 'WSBC0250A001',
+      planId: 1,
+      contractStart: '2026/12/01',
+      contractEnd: '2027/11/30',
+      overhaulUsed: 0,
+      maintenanceUsed: 1,
+      inspectionUsed: 1,
+      overhaulCompleted: '',
+      shopId: 1,
+      receptionist: '田中',
+    },
+    {
+      id: 2,
+      customer: '佐藤 花子',
+      maker: 'TREK',
+      model: 'Madone SL 7',
+      year: 2024,
+      serial: 'WTU12345678',
+      planId: 2,
+      contractStart: '2026/12/01',
+      contractEnd: '2027/11/30',
+      overhaulUsed: 0,
+      maintenanceUsed: 0,
+      inspectionUsed: 0,
+      overhaulCompleted: '',
+      shopId: 1,
+      receptionist: '田中',
+    },
+    {
+      id: 3,
+      customer: '鈴木 一郎',
+      maker: 'GIANT',
+      model: 'TCR Advanced Pro',
+      year: 2023,
+      serial: 'GNT2023-0088',
+      planId: 3,
+      contractStart: '2026/12/01',
+      contractEnd: '2027/11/30',
+      overhaulUsed: 1,
+      maintenanceUsed: 2,
+      inspectionUsed: 0,
+      overhaulCompleted: '2027/01/15',
+      shopId: 2,
+      receptionist: '佐々木',
+    },
+    {
+      id: 4,
+      customer: '山田 太郎',
+      maker: 'CANYON',
+      model: 'Speedmax CF 7',
+      year: 2025,
+      serial: 'CNY-SM-2025-014',
+      planId: 2,
+      contractStart: '2026/12/01',
+      contractEnd: '2027/11/30',
+      overhaulUsed: 0,
+      maintenanceUsed: 1,
+      inspectionUsed: 0,
+      overhaulCompleted: '',
+      shopId: 1,
+      receptionist: '田中',
+    },
+  ]);
+  const planFor = (b: Bike) =>
+    plans.value.find((p) => p.id === b.planId) ??
+    plans.value[0] ??
+    ({ id: 0, name: '未設定', overhaulCount: 0, maintenanceCount: 0, inspectionCount: 0 } as Plan);
+  const overhauls = ref<Work[]>([
+    {
+      id: 1,
+      bikeId: 1,
+      date: '2027/01/15',
+      endDate: '2027/01/16',
+      status: '作業中',
+      title: '年間オーバーホール',
+      detail: '全体オーバーホール・消耗品点検',
+      shopId: 1,
+      receptionist: '田中',
+    },
+    {
+      id: 2,
+      bikeId: 2,
+      date: '2027/02/05',
+      status: '予約済み',
+      title: '年間オーバーホール',
+      detail: '納車後初回オーバーホール',
+      shopId: 1,
+      receptionist: '田中',
+    },
+    {
+      id: 3,
+      bikeId: 3,
+      date: '2027/01/15',
+      endDate: '2027/01/16',
+      status: '完了',
+      title: '年間オーバーホール',
+      detail: '駆動系洗浄・ワイヤー交換',
+      shopId: 2,
+      receptionist: '佐々木',
+    },
+    {
+      id: 4,
+      bikeId: 4,
+      date: '2027/02/12',
+      status: '予定',
+      title: '年間オーバーホール',
+      detail: '専用コクピット・油圧ブレーキ・駆動系点検',
+      shopId: 1,
+      receptionist: '田中',
+    },
+  ]);
+  const maintenance = ref<Work[]>([
+    {
+      id: 1,
+      bikeId: 1,
+      date: '2027/04/10',
+      endDate: '2027/04/10',
+      status: '完了',
+      title: '春の目標イベント前メンテナンス',
+      detail: '駆動系・変速・ブレーキ調整',
+      shopId: 1,
+      receptionist: '田中',
+    },
+    {
+      id: 2,
+      bikeId: 1,
+      date: '2027/06/05',
+      status: '予定',
+      title: '夏季メインイベントに向けたメンテナンス',
+      detail: '消耗品・ホイール・ポジション確認',
+      shopId: 1,
+      receptionist: '田中',
+    },
+    {
+      id: 3,
+      bikeId: 3,
+      date: '2027/05/20',
+      endDate: '2027/05/21',
+      status: '完了',
+      title: 'シーズン前メンテナンス',
+      detail: '変速・ブレーキ・タイヤ点検',
+      shopId: 2,
+      receptionist: '佐々木',
+    },
+    {
+      id: 4,
+      bikeId: 3,
+      date: '2027/08/01',
+      endDate: '2027/08/01',
+      status: '完了',
+      title: '夏季イベント前メンテナンス',
+      detail: 'チェーン清掃・注油・各部増し締め',
+      shopId: 2,
+      receptionist: '佐々木',
+    },
+    {
+      id: 5,
+      bikeId: 4,
+      date: '2027/06/12',
+      status: '予定',
+      title: 'TTイベント前ポジション・機材確認',
+      detail: 'エアロポジション・変速・ブレーキ・タイヤ確認',
+      shopId: 1,
+      receptionist: '田中',
+    },
+  ]);
+  const eventChecks = ref<EventCheck[]>([
+    {
+      id: 1,
+      bikeId: 1,
+      name: 'シーズン開幕ロードレース',
+      eventDate: '2027/04/18',
+      inspectionDate: '2027/04/14',
+      endDate: '2027/04/15',
+      status: '作業中',
+      memo: 'イベント直前の安全確認',
+      shopId: 1,
+      receptionist: '田中',
+    },
+    {
+      id: 2,
+      bikeId: 1,
+      name: '夏のメインイベント',
+      eventDate: '2027/07/25',
+      inspectionDate: '2027/07/21',
+      status: '予定',
+      memo: 'タイヤ・ブレーキ・締結確認',
+      shopId: 1,
+      receptionist: '田中',
+    },
+    {
+      id: 3,
+      bikeId: 2,
+      name: '冬季サイクルイベント',
+      eventDate: '2027/12/10',
+      inspectionDate: '2027/12/07',
+      status: '予定',
+      memo: '次年度契約のイベント予定例',
+      shopId: 1,
+      receptionist: '田中',
+    },
+    {
+      id: 4,
+      bikeId: 4,
+      name: '夏季TTメインイベント',
+      eventDate: '2027/06/20',
+      inspectionDate: '2027/06/16',
+      status: '予定',
+      memo: 'TTポジション・ホイール・ブレーキの事前確認',
+      shopId: 1,
+      receptionist: '田中',
+    },
+  ]);
+  const histories = ref<History[]>([
+    {
+      id: 1,
+      bikeId: 1,
+      date: '2027/04/10',
+      category: 'メンテナンス',
+      title: '春の目標イベント前メンテナンス',
+      detail: '駆動系・変速・ブレーキ調整',
+    },
+    {
+      id: 2,
+      bikeId: 3,
+      date: '2027/01/15',
+      category: 'オーバーホール',
+      title: '年間オーバーホール',
+      detail: '駆動系洗浄・ワイヤー交換',
+    },
+    {
+      id: 3,
+      bikeId: 3,
+      date: '2027/05/20',
+      category: 'メンテナンス',
+      title: 'シーズン前メンテナンス',
+      detail: '変速・ブレーキ・タイヤ点検',
+    },
+    {
+      id: 4,
+      bikeId: 3,
+      date: '2027/08/01',
+      category: 'メンテナンス',
+      title: '夏季イベント前メンテナンス',
+      detail: 'チェーン清掃・注油・各部増し締め',
+    },
+    {
+      id: 5,
+      bikeId: 4,
+      date: '2027/05/18',
+      category: 'メンテナンス',
+      title: '初回メンテナンス',
+      detail: 'ポジション・変速・ブレーキ調整',
+      memo: '左右パッドクリアランスを再確認',
+    },
+  ]);
+  type ApiBike = {
+    id: number;
+    customerId: number;
+    customer: string;
+    maker: string;
+    model: string;
+    year: number;
+    serial: string;
+    contractStart?: string | null;
+    contractEnd?: string | null;
+    overhaulUsed: number;
+    maintenanceUsed: number;
+    inspectionUsed: number;
+    plan?: Plan | null;
+    shopId?: number | null;
+    receptionistId?: number | null;
+  };
+  const dateSlash = (v?: string | null) => (v ? String(v).slice(0, 10).replace(/-/g, '/') : '');
+  const dateIso = (v?: string | null) => (v ? String(v).slice(0, 10).replace(/\//g, '-') : '');
+  const receptionistName = (id: number) => staff.value.find((x) => x.id === id)?.name ?? '';
+  function mapBike(x: ApiBike): Bike {
+    return {
+      id: x.id,
+      customer: x.customer,
+      maker: x.maker,
+      model: x.model,
+      year: x.year,
+      serial: x.serial,
+      planId: x.plan?.id ?? 1,
+      contractStart: dateSlash(x.contractStart),
+      contractEnd: dateSlash(x.contractEnd),
+      overhaulUsed: x.overhaulUsed,
+      maintenanceUsed: x.maintenanceUsed,
+      inspectionUsed: x.inspectionUsed,
+      overhaulCompleted: '',
+      shopId: x.shopId ?? 1,
+      receptionist: receptionistName(x.receptionistId ?? 0),
+    };
+  }
+  function mapWork(x: any): Work {
+    return {
+      id: x.id,
+      bikeId: x.bikeId,
+      date: dateSlash(x.startDate),
+      endDate: dateSlash(x.endDate),
+      status: x.status as Status,
+      title: x.title,
+      detail: x.detail,
+      shopId: x.shopId,
+      receptionist: x.receptionist ?? receptionistName(x.receptionistId),
+    };
+  }
+  function mapEvent(x: any): EventCheck {
+    return {
+      id: x.id,
+      bikeId: x.bikeId,
+      name: x.name,
+      eventDate: dateSlash(x.eventDate),
+      inspectionDate: dateSlash(x.inspectionStartDate),
+      endDate: dateSlash(x.inspectionEndDate),
+      status: x.status,
+      memo: x.memo,
+      shopId: x.shopId,
+      receptionist: receptionistName(x.receptionistId),
+    };
+  }
+  async function reloadData() {
+    if (USE_MOCK_DATA) return;
+    const [c, sh, st, pl, b, oh, ma, ev, hi] = await Promise.all([
+      apiGet<any[]>('/customers'),
+      apiGet<any[]>('/shops'),
+      apiGet<any[]>('/staff'),
+      apiGet<Plan[]>('/plans'),
+      apiGet<ApiBike[]>('/bikes'),
+      apiGet<any[]>('/overhauls'),
+      apiGet<any[]>('/maintenance'),
+      apiGet<any[]>('/events'),
+      apiGet<any[]>('/history'),
+    ]);
+    customers.value = c;
+    shops.value = sh;
+    staff.value = st;
+    plans.value = pl;
+    bikes.value = b.map(mapBike);
+    overhauls.value = oh.map(mapWork);
+    maintenance.value = ma.map(mapWork);
+    eventChecks.value = ev.map(mapEvent);
+    histories.value = hi.map((x: any) => ({
+      id: x.id,
+      bikeId: x.bikeId,
+      date: dateSlash(x.date),
+      startDate: dateSlash(x.startDate),
+      category: x.category,
+      title: x.title,
+      detail: x.detail,
+      memo: x.memo ?? '',
+    }));
+  }
+  onMounted(async () => {
+    if (USE_MOCK_DATA) {
+      notice.value = 'Vue内のモックデータを表示しています。APIへの通信は行いません。';
+      return;
+    }
+    // APIモードではVue側の初期モック値を消し、API取得結果だけを表示します。
+    customers.value = [];
+    shops.value = [];
+    staff.value = [];
+    plans.value = [];
+    bikes.value = [];
+    overhauls.value = [];
+    maintenance.value = [];
+    eventChecks.value = [];
+    histories.value = [];
+    try {
+      await reloadData();
+      notice.value = 'バックエンドAPIに接続しました。';
+    } catch (e) {
+      dataSourceStatus.value = 'error';
+      notice.value = `APIに接続できません。モックデータへの自動切替は行いません。${e instanceof Error ? ` (${e.message})` : ''}`;
+    }
+  });
+  async function apiAction(action: () => Promise<unknown>, success: string) {
+    if (USE_MOCK_DATA) {
+      notice.value =
+        '現在はVueモックデータ表示モードです。登録・更新操作はAPIモードで行ってください。';
+      return false;
+    }
+    try {
+      await action();
+      await reloadData();
+      dataSourceStatus.value = 'api';
+      notice.value = success;
+      return true;
+    } catch (e) {
+      dataSourceStatus.value = 'error';
+      notice.value = e instanceof Error ? e.message : 'API処理に失敗しました。';
+      return false;
+    }
+  }
+  const newOverhaulBike = ref(1),
+    newOverhaulReceptionDate = ref('2026-12-15'),
+    newOverhaulDate = ref('2027-01-15'),
+    newOverhaulEndDate = ref('2027-01-16'),
+    newOverhaulTitle = ref('年間オーバーホール'),
+    newOverhaulDetail = ref('全体点検・消耗品確認・駆動系整備');
+  const newWorkBike = ref(1),
+    newWorkDate = ref('2027-07-01'),
+    newWorkEndDate = ref('2027-07-01'),
+    newWorkTitle = ref('メインイベントに向けたメンテナンス'),
+    newWorkDetail = ref('イベントに向けた状態確認・調整');
+  const newEventBike = ref(1),
+    newEventName = ref(''),
+    newEventDate = ref('2027-08-01'),
+    newInspectionDate = ref('2027-07-28'),
+    newInspectionEndDate = ref('2027-07-28');
+  function bikeLabel(id: number) {
+    const b = bikes.value.find((x) => x.id === id);
+    return b ? `${b.customer} / ${b.maker} ${b.model}` : '';
+  }
+  function setBikeFromLabel(label: string, target: 'overhaul' | 'maintenance' | 'event') {
+    const b = bikes.value.find((x) => bikeLabel(x.id) === label);
+    if (!b) return;
+    if (target === 'overhaul') newOverhaulBike.value = b.id;
+    else if (target === 'maintenance') newWorkBike.value = b.id;
+    else newEventBike.value = b.id;
+  }
+  const overhaulBikeSearch = ref(bikeLabel(newOverhaulBike.value)),
+    maintenanceBikeSearch = ref(bikeLabel(newWorkBike.value)),
+    eventBikeSearch = ref(bikeLabel(newEventBike.value));
+  const selectedBike = computed(
+    () =>
+      bikes.value.find((b) => b.id === selectedBikeId.value) ??
+      bikes.value[0] ??
+      ({
+        id: 0,
+        customer: '',
+        maker: '',
+        model: '',
+        year: 0,
+        serial: '',
+        planId: 0,
+        contractStart: '',
+        contractEnd: '',
+        overhaulUsed: 0,
+        maintenanceUsed: 0,
+        inspectionUsed: 0,
+        overhaulCompleted: '',
+        shopId: 0,
+        receptionist: '',
+      } as Bike)
+  );
+  const selectedCustomerBikes = computed(() =>
+    bikes.value.filter((b) => b.customer === selectedCustomerName.value)
+  );
+  const selectedCustomer = computed(() =>
+    customers.value.find((c) => c.name === selectedCustomerName.value)
+  );
+  const selectedCustomerWorks = computed(() =>
+    [
+      ...overhauls.value
+        .filter((w) => selectedCustomerBikes.value.some((b) => b.id === w.bikeId))
+        .map((w) => ({ ...w, kind: 'オーバーホール' })),
+      ...maintenance.value
+        .filter((w) => selectedCustomerBikes.value.some((b) => b.id === w.bikeId))
+        .map((w) => ({ ...w, kind: 'メンテナンス' })),
+      ...eventChecks.value
+        .filter((w) => selectedCustomerBikes.value.some((b) => b.id === w.bikeId))
+        .map((w) => ({ ...w, date: w.inspectionDate, title: w.name, kind: '点検サポート' })),
+    ].sort((a, b) => a.date.localeCompare(b.date))
+  );
+  const selectedCustomerHistories = computed(() =>
+    histories.value
+      .filter((h) => selectedCustomerBikes.value.some((b) => b.id === h.bikeId))
+      .sort((a, b) => b.date.localeCompare(a.date))
+  );
+  function openCustomerDetail(name: string) {
+    selectedCustomerName.value = name;
+    showCustomerDetail.value = true;
+  }
+  function openCustomerBikeRegistration(kind: 'overhaul' | 'maintenance' | 'event', bike: Bike) {
+    // 登録フォームは顧客詳細モーダルに重ねず、該当する管理画面上で単独表示します。
+    // 顧客・自転車の選択状態を引き継ぎ、キャンセル時も管理画面に留まります。
+    openCustomerBikePage(kind === 'event' ? 'events' : kind, bike.id);
+    if (kind === 'overhaul') {
+      newOverhaulBike.value = bike.id;
+      overhaulBikeSearch.value = bikeLabel(bike.id);
+      const year = Number(bike.contractStart.slice(0, 4));
+      newOverhaulReceptionDate.value = `${year}-12-15`;
+      newOverhaulDate.value = `${year + 1}-01-15`;
+      newOverhaulEndDate.value = `${year + 1}-01-16`;
+      showOverhaulModal.value = true;
+    } else if (kind === 'maintenance') {
+      newWorkBike.value = bike.id;
+      maintenanceBikeSearch.value = bikeLabel(bike.id);
+      newWorkDate.value = '2027-07-01';
+      newWorkEndDate.value = '2027-07-01';
+      showMaintenanceModal.value = true;
+    } else {
+      newEventBike.value = bike.id;
+      eventBikeSearch.value = bikeLabel(bike.id);
+      newEventName.value = '';
+      newEventDate.value = '2027-08-01';
+      newInspectionDate.value = '2027-07-28';
+      newInspectionEndDate.value = '2027-07-28';
+      showEventModal.value = true;
+    }
+    notice.value = `${bike.customer} 様の ${bike.maker} ${bike.model} を登録対象に設定しました。`;
+  }
+  function openBikeDetail(bikeId: number) {
+    selectedBikeId.value = bikeId;
+    showBikeDetail.value = true;
+  }
+  function openCustomerBikePage(
+    target: 'overhaul' | 'maintenance' | 'events' | 'history',
+    bikeId: number
+  ) {
+    selectedBikeId.value = bikeId;
+    selectedBikeFilter.value = target === 'history' ? null : bikeId;
+    customerFilterText.value = '';
+    bikeFilterText.value = '';
+    searchOverhauls.value = '';
+    searchMaintenance.value = '';
+    searchEvents.value = '';
+    searchHistory.value = '';
+    page.value = target;
+    showCustomerDetail.value = false;
+  }
+  function openCustomerWork(item: { kind: string; bikeId: number }) {
+    const target =
+      item.kind === 'オーバーホール'
+        ? 'overhaul'
+        : item.kind === '点検サポート'
+          ? 'events'
+          : 'maintenance';
+    openCustomerBikePage(target, item.bikeId);
+  }
+  const remaining = (b: Bike, kind: 'maintenance' | 'inspection' | 'overhaul') => {
+    const p = planFor(b);
+    const used =
+      kind === 'maintenance'
+        ? b.maintenanceUsed
+        : kind === 'inspection'
+          ? b.inspectionUsed
+          : b.overhaulUsed;
+    const limit =
+      kind === 'maintenance'
+        ? p.maintenanceCount
+        : kind === 'inspection'
+          ? p.inspectionCount
+          : p.overhaulCount;
+    return Math.max(0, limit - used);
+  };
+  // 契約枠のうち、完了済み回数と未完了の予定回数を差し引いた新規登録可能数。キャンセルは枠を解放します。
+  const activeScheduleCount = (bikeId: number, kind: 'maintenance' | 'inspection' | 'overhaul') => {
+    const active = (items: { bikeId: number; status: Status }[]) =>
+      items.filter((x) => x.bikeId === bikeId && x.status !== '完了' && x.status !== 'キャンセル')
+        .length;
+    return kind === 'overhaul'
+      ? active(overhauls.value)
+      : kind === 'maintenance'
+        ? active(maintenance.value)
+        : active(eventChecks.value);
+  };
+  const scheduleRemaining = (b: Bike, kind: 'maintenance' | 'inspection' | 'overhaul') =>
+    Math.max(0, remaining(b, kind) - activeScheduleCount(b.id, kind));
+  const completedCount = computed(() => histories.value.length),
+    upcomingCount = computed(
+      () =>
+        overhauls.value.filter((x) => x.status !== '完了' && x.status !== 'キャンセル').length +
+        maintenance.value.filter((x) => x.status !== '完了' && x.status !== 'キャンセル').length +
+        eventChecks.value.filter((x) => x.status !== '完了' && x.status !== 'キャンセル').length
+    ),
+    pendingCount = computed(
+      () =>
+        maintenance.value.filter((x) => x.status === '案内待ち').length +
+        eventChecks.value.filter((x) => x.status === '案内待ち').length
+    );
+  const allUpcoming = computed(() =>
+    [
+      ...overhauls.value
+        .filter((x) => x.status !== '完了' && x.status !== 'キャンセル')
+        .map((x) => ({ ...x, kind: 'オーバーホール' })),
+      ...maintenance.value
+        .filter((x) => x.status !== '完了' && x.status !== 'キャンセル')
+        .map((x) => ({ ...x, kind: 'メンテナンス' })),
+      ...eventChecks.value
+        .filter((x) => x.status !== '完了' && x.status !== 'キャンセル')
+        .map((x) => ({ ...x, date: x.inspectionDate, title: x.name, kind: 'イベント前点検' })),
+    ].sort((a, b) => a.date.localeCompare(b.date))
+  );
+  const customerBikes = computed(() => bikes.value.filter((b) => b.customer === '山田 太郎'));
+  const bikeCountForCustomer = (name: string) =>
+    bikes.value.filter((b) => b.customer === name).length;
+  function setPage(p: Page) {
+    page.value = p;
+    notice.value = '';
+  }
+  function addHistory(
+    b: Bike,
+    startDate: string,
+    endDate: string,
+    category: string,
+    title: string,
+    detail: string,
+    memo = ''
+  ) {
+    histories.value.unshift({
+      id: Math.max(0, ...histories.value.map((h) => h.id)) + 1,
+      bikeId: b.id,
+      startDate,
+      date: endDate,
+      category,
+      title,
+      detail,
+      memo,
+    });
+  }
+  async function startWork(kind: 'maintenance' | 'event' | 'overhaul', item: any) {
+    if (item.status === '完了' || item.status === 'キャンセル') return;
+    const staffMember =
+      staff.value.find((x) => x.name === item.receptionist && x.shopId === item.shopId) ??
+      staff.value.find((x) => x.shopId === item.shopId);
+    if (!staffMember) {
+      notice.value = '受付担当者を確認してください。';
+      return;
+    }
+    const ok =
+      kind === 'event'
+        ? await apiAction(
+            () =>
+              apiPut(`/events/${item.id}`, {
+                id: item.id,
+                bikeId: item.bikeId,
+                name: item.name,
+                eventDate: dateIso(item.eventDate),
+                inspectionStartDate: dateIso(item.inspectionDate),
+                inspectionEndDate: dateIso(item.endDate),
+                status: '作業中',
+                memo: item.memo,
+                shopId: item.shopId,
+                receptionistId: staffMember.id,
+              }),
+            '点検を作業中に変更しました。'
+          )
+        : await apiAction(
+            () =>
+              apiPut(`/work/${item.id}`, {
+                startDate: dateIso(item.date),
+                endDate: dateIso(item.endDate) || null,
+                status: '作業中',
+                title: item.title,
+                detail: item.detail,
+                receptionistId: staffMember.id,
+              }),
+            '作業中に変更しました。'
+          );
+  }
+  function startCompletion(kind: 'maintenance' | 'event' | 'overhaul', item: any) {
+    completionTarget.value = { kind, id: item.id };
+    completionMemo.value = '';
+    const suggested = item.endDate || (kind === 'event' ? item.inspectionDate : item.date);
+    completionDate.value = suggested.replace(/\//g, '-');
+  }
+  async function confirmCompletion() {
+    if (!completionTarget.value) return;
+    const { kind, id } = completionTarget.value;
+    const list: any =
+      kind === 'maintenance'
+        ? maintenance.value
+        : kind === 'event'
+          ? eventChecks.value
+          : overhauls.value;
+    const item = list.find((x: any) => x.id === id);
+    if (!item || item.status === '完了') return;
+    const startDate = kind === 'event' ? item.inspectionDate : item.date;
+    const endDate = completionDate.value;
+    if (!endDate || endDate < startDate.replace(/\//g, '-')) {
+      notice.value = '完了日は開始日以降の日付を指定してください。';
+      return;
+    }
+    const endpoint = kind === 'event' ? `/events/${id}/complete` : `/work/${id}/complete`;
+    const ok = await apiAction(
+      () => apiPost(endpoint, { completedDate: endDate, memo: completionMemo.value }),
+      kind === 'event'
+        ? '点検サポートを完了し、点検回数を1回消費しました。'
+        : kind === 'maintenance'
+          ? 'メンテナンスを完了し、メンテナンス回数を1回消費しました。'
+          : 'オーバーホールを完了しました。'
+    );
+    if (ok) {
+      completionTarget.value = null;
+      completionMemo.value = '';
+    }
+  }
+
+  async function addContract() {
+    if (USE_MOCK_DATA) {
+      notice.value =
+        '現在はVueモックデータ表示モードです。年間契約の登録はAPIモードで行ってください。';
+      return;
+    }
+    const f = contractForm.value;
+    if (!f.start.endsWith('-12-01')) {
+      notice.value = '年間契約の開始日は12月1日にしてください。';
+      return;
+    }
+    const year = Number(f.start.slice(0, 4));
+    if (
+      !f.applicationDate ||
+      f.applicationDate.slice(0, 4) !== String(year) ||
+      f.applicationDate > `${year}-12-31`
+    ) {
+      notice.value = '年間契約の受付期限は契約開始年の12月31日です。';
+      return;
+    }
+    try {
+      const existingCustomer = customers.value.find((x) => x.name === f.customer);
+
+      let customerId: number;
+
+      if (existingCustomer) {
+        customerId = existingCustomer.id;
+      } else {
+        const createdCustomer = await apiPost<any>('/customers', {
+          name: f.customer,
+          email: '',
+          phone: '',
+        });
+
+        customerId = createdCustomer.id;
+      }
+      const bike = await apiPost<ApiBike>('/bikes', {
+        id: 0,
+        customerId: customerId,
+        maker: f.maker,
+        model: f.model,
+        year: f.year,
+        serial: f.serial,
+        activeContractId: null,
+      });
+      const person =
+        staff.value.find((x) => x.shopId === f.shopId && x.name === f.receptionist) ??
+        staff.value.find((x) => x.shopId === f.shopId);
+      if (!person) throw new Error('受付担当者を登録してください。');
+      await apiPost('/contracts', {
+        bikeId: bike.id,
+        planId: f.planId,
+        applicationDate: f.applicationDate,
+        startDate: f.start,
+        shopId: f.shopId,
+        receptionistId: person.id,
+      });
+      await reloadData();
+      selectedBikeId.value = bike.id;
+      newOverhaulBike.value = bike.id;
+      overhaulBikeSearch.value = bikeLabel(bike.id);
+      newOverhaulReceptionDate.value = f.applicationDate;
+      notice.value =
+        '年間契約を登録しました。次のステップとしてオーバーホールの受付・実施予定日を設定してください。';
+      page.value = 'overhaul';
+      showContractModal.value = false;
+      showOverhaulModal.value = true;
+    } catch (e) {
+      notice.value = e instanceof Error ? e.message : '年間契約の登録に失敗しました。';
+    }
+  }
+  async function addShop() {
+    if (!newShopName.value.trim()) return;
+    const ok = await apiAction(
+      () =>
+        apiPost('/shops', {
+          name: newShopName.value,
+          address: newShopAddress.value,
+          phone: newShopPhone.value,
+        }),
+      '店舗を登録しました。'
+    );
+    if (ok) {
+      newShopName.value = '';
+      newShopAddress.value = '';
+      newShopPhone.value = '';
+      showShopModal.value = false;
+    }
+  }
+  async function addStaff() {
+    if (!newStaffName.value.trim()) return;
+    const ok = await apiAction(
+      () =>
+        apiPost('/staff', {
+          shopId: newStaffShop.value,
+          name: newStaffName.value,
+          role: '受付担当',
+        }),
+      '受付担当者を登録しました。'
+    );
+    if (ok) {
+      newStaffName.value = '';
+      showStaffModal.value = false;
+    }
+  }
+
+  function openEdit(kind: 'maintenance' | 'event' | 'overhaul', item: any) {
+    editTarget.value = { kind, id: item.id };
+    editDate.value = (kind === 'event' ? item.inspectionDate : item.date).replace(/\//g, '-');
+    editEndDate.value = (item.endDate || '').replace(/\//g, '-');
+    editTitle.value = kind === 'event' ? item.name : item.title;
+    editDetail.value = kind === 'event' ? item.memo : item.detail;
+    editReceptionist.value = item.receptionist || '田中';
+  }
+  async function saveEdit() {
+    if (!editTarget.value) return;
+    const { kind, id } = editTarget.value;
+    if (kind === 'overhaul') {
+      const itemBike = overhauls.value.find((x) => x.id === id);
+      const contractBike = bikes.value.find((x) => x.id === itemBike?.bikeId);
+      const contractYear = Number(contractBike?.contractStart.slice(0, 4));
+      if (
+        !contractBike ||
+        !isOverhaulSeason(editDate.value, contractYear) ||
+        (editEndDate.value && !isOverhaulSeason(editEndDate.value, contractYear))
+      ) {
+        notice.value =
+          'オーバーホールの実施予定日は契約開始年の11月1日〜翌年2月末の期間で設定してください。';
+        return;
+      }
+    }
+    const list: any =
+      kind === 'maintenance'
+        ? maintenance.value
+        : kind === 'event'
+          ? eventChecks.value
+          : overhauls.value;
+    const item = list.find((x: any) => x.id === id);
+    if (!item) return;
+    const person =
+      staff.value.find((x) => x.name === editReceptionist.value && x.shopId === item.shopId) ??
+      staff.value.find((x) => x.shopId === item.shopId);
+    if (!person) {
+      notice.value = '受付担当者を確認してください。';
+      return;
+    }
+    if (editEndDate.value && editEndDate.value < editDate.value) {
+      notice.value = '完了日は開始日以降の日付にしてください。';
+      return;
+    }
+    const ok =
+      kind === 'event'
+        ? await apiAction(
+            () =>
+              apiPut(`/events/${id}`, {
+                id,
+                bikeId: item.bikeId,
+                name: editTitle.value,
+                eventDate: dateIso(item.eventDate),
+                inspectionStartDate: editDate.value,
+                inspectionEndDate: editEndDate.value || null,
+                status: item.status,
+                memo: editDetail.value,
+                shopId: item.shopId,
+                receptionistId: person.id,
+              }),
+            '予定内容を更新しました。契約回数は変更していません。'
+          )
+        : await apiAction(
+            () =>
+              apiPut(`/work/${id}`, {
+                startDate: editDate.value,
+                endDate: editEndDate.value || null,
+                status: item.status,
+                title: editTitle.value,
+                detail: editDetail.value,
+                receptionistId: person.id,
+              }),
+            '予定内容を更新しました。契約回数は変更していません。'
+          );
+    if (ok) editTarget.value = null;
+  }
+
+  function isOverhaulSeason(value: string, contractYear: number) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isInteger(contractYear)) return false;
+    const [year, month, day] = value.split('-').map(Number);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    if (
+      parsed.getUTCFullYear() !== year ||
+      parsed.getUTCMonth() !== month - 1 ||
+      parsed.getUTCDate() !== day
+    )
+      return false;
+    const start = `${contractYear}-11-01`;
+    const end = `${contractYear + 1}-02-${new Date(Date.UTC(contractYear + 1, 2, 0)).getUTCDate().toString().padStart(2, '0')}`;
+    return value >= start && value <= end;
+  }
+  async function addOverhaul() {
+    if (bikeLabel(newOverhaulBike.value) !== overhaulBikeSearch.value) {
+      notice.value = '顧客・自転車は候補から選択してください。';
+      return;
+    }
+    const b = bikes.value.find((x) => x.id === newOverhaulBike.value);
+    if (!b) {
+      notice.value = '登録対象の自転車を選択してください。';
+      return;
+    }
+    if (scheduleRemaining(b, 'overhaul') <= 0) {
+      notice.value = `${b.maker} ${b.model} のオーバーホールは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`;
+      return;
+    }
+    const receptionDate = newOverhaulReceptionDate.value,
+      contractYear = Number(b.contractStart.slice(0, 4));
+    if (!receptionDate || receptionDate > `${contractYear}-12-31`) {
+      notice.value = 'オーバーホールの受付期限は契約開始年の12月31日です。';
+      return;
+    }
+    if (
+      !isOverhaulSeason(newOverhaulDate.value, contractYear) ||
+      (newOverhaulEndDate.value && !isOverhaulSeason(newOverhaulEndDate.value, contractYear))
+    ) {
+      notice.value =
+        'オーバーホールの実施予定日は契約開始年の11月1日〜翌年2月末の期間で設定してください。';
+      return;
+    }
+    if (receptionDate > newOverhaulDate.value) {
+      notice.value = '受付日は実施予定日以前の日付にしてください。同日での受付・実施は可能です。';
+      return;
+    }
+    if (newOverhaulEndDate.value && newOverhaulEndDate.value < newOverhaulDate.value) {
+      notice.value = '完了予定日は開始予定日以降にしてください。';
+      return;
+    }
+    const person =
+      staff.value.find((x) => x.shopId === b.shopId && x.name === b.receptionist) ??
+      staff.value.find((x) => x.shopId === b.shopId);
+    if (!person) {
+      notice.value = '受付担当者を確認してください。';
+      return;
+    }
+    if (USE_MOCK_DATA) {
+      const item: Work = {
+        id: Math.max(0, ...overhauls.value.map((x) => x.id)) + 1,
+        bikeId: b.id,
+        date: dateSlash(newOverhaulDate.value),
+        endDate: newOverhaulEndDate.value ? dateSlash(newOverhaulEndDate.value) : undefined,
+        status: '予定',
+        title: newOverhaulTitle.value,
+        detail: newOverhaulDetail.value,
+        shopId: b.shopId,
+        receptionist: person.name,
+      };
+      overhauls.value.unshift(item);
+      showOverhaulModal.value = false;
+      dataSourceStatus.value = 'mock';
+      notice.value =
+        'オーバーホール予定をVueモックデータに登録しました。画面を再読み込みすると初期データに戻ります。';
+      return;
+    }
+    const ok = await apiAction(
+      () =>
+        apiPost('/overhauls', {
+          bikeId: b.id,
+          startDate: newOverhaulDate.value,
+          endDate: newOverhaulEndDate.value || null,
+          title: newOverhaulTitle.value,
+          detail: newOverhaulDetail.value,
+          shopId: b.shopId,
+          receptionistId: person.id,
+        }),
+      'オーバーホール予定を登録しました。実施完了までは契約回数を消費しません。'
+    );
+    if (ok) showOverhaulModal.value = false;
+  }
+  async function addMaintenance() {
+    if (bikeLabel(newWorkBike.value) !== maintenanceBikeSearch.value) {
+      notice.value = '顧客・自転車は候補から選択してください。';
+      return;
+    }
+    const b = bikes.value.find((x) => x.id === newWorkBike.value);
+    if (!b) return;
+    if (scheduleRemaining(b, 'maintenance') <= 0) {
+      notice.value = `${b.maker} ${b.model} のメンテナンスは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`;
+      return;
+    }
+    if (newWorkEndDate.value && newWorkEndDate.value < newWorkDate.value) {
+      notice.value = '完了予定日は開始予定日以降にしてください。';
+      return;
+    }
+    const person =
+      staff.value.find((x) => x.shopId === b.shopId && x.name === b.receptionist) ??
+      staff.value.find((x) => x.shopId === b.shopId);
+    if (!person) {
+      notice.value = '受付担当者を確認してください。';
+      return;
+    }
+    if (USE_MOCK_DATA) {
+      maintenance.value.unshift({
+        id: Math.max(0, ...maintenance.value.map((x) => x.id)) + 1,
+        bikeId: b.id,
+        date: dateSlash(newWorkDate.value),
+        endDate: newWorkEndDate.value ? dateSlash(newWorkEndDate.value) : undefined,
+        status: '予定',
+        title: newWorkTitle.value,
+        detail: newWorkDetail.value,
+        shopId: b.shopId,
+        receptionist: person.name,
+      });
+      showMaintenanceModal.value = false;
+      notice.value = 'メンテナンス計画をVueモックデータに登録しました。';
+      return;
+    }
+    const ok = await apiAction(
+      () =>
+        apiPost('/maintenance', {
+          bikeId: b.id,
+          startDate: newWorkDate.value,
+          endDate: newWorkEndDate.value || null,
+          title: newWorkTitle.value,
+          detail: newWorkDetail.value,
+          shopId: b.shopId,
+          receptionistId: person.id,
+        }),
+      'メンテナンス計画を追加しました。実施完了までは回数を消費しません。'
+    );
+    if (ok) showMaintenanceModal.value = false;
+  }
+  async function addEvent() {
+    if (bikeLabel(newEventBike.value) !== eventBikeSearch.value) {
+      notice.value = '顧客・自転車は候補から選択してください。';
+      return;
+    }
+    const b = bikes.value.find((x) => x.id === newEventBike.value);
+    if (!b || !newEventName.value.trim()) {
+      notice.value = 'イベント名を入力してください。';
+      return;
+    }
+    if (scheduleRemaining(b, 'inspection') <= 0) {
+      notice.value = `${b.maker} ${b.model} の点検サポートは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`;
+      return;
+    }
+    if (newInspectionEndDate.value && newInspectionEndDate.value < newInspectionDate.value) {
+      notice.value = '点検完了予定日は開始予定日以降にしてください。';
+      return;
+    }
+    const person =
+      staff.value.find((x) => x.shopId === b.shopId && x.name === b.receptionist) ??
+      staff.value.find((x) => x.shopId === b.shopId);
+    if (!person) {
+      notice.value = '受付担当者を確認してください。';
+      return;
+    }
+    if (USE_MOCK_DATA) {
+      eventChecks.value.unshift({
+        id: Math.max(0, ...eventChecks.value.map((x) => x.id)) + 1,
+        bikeId: b.id,
+        name: newEventName.value,
+        eventDate: dateSlash(newEventDate.value),
+        inspectionDate: dateSlash(newInspectionDate.value),
+        endDate: newInspectionEndDate.value ? dateSlash(newInspectionEndDate.value) : undefined,
+        status: '予定',
+        memo: '目標イベントに向けた点検サポート',
+        shopId: b.shopId,
+        receptionist: person.name,
+      });
+      newEventName.value = '';
+      showEventModal.value = false;
+      notice.value = 'イベント・点検予定をVueモックデータに登録しました。';
+      return;
+    }
+    const ok = await apiAction(
+      () =>
+        apiPost('/events', {
+          bikeId: b.id,
+          name: newEventName.value,
+          eventDate: newEventDate.value,
+          inspectionStartDate: newInspectionDate.value,
+          inspectionEndDate: newInspectionEndDate.value || null,
+          memo: '目標イベントに向けた点検サポート',
+          shopId: b.shopId,
+          receptionistId: person.id,
+        }),
+      '目標イベントと点検予定を登録しました。'
+    );
+    if (ok) {
+      newEventName.value = '';
+      showEventModal.value = false;
+    }
+  }
+
+  function sendMail() {
+    showMail.value = false;
+    notice.value = `${mailTarget.value} 様への「${mailKind.value}」を送信した想定のデモです（実際には送信されません）。`;
+  }
 </script>
 <template>
-<div class="app-shell"><aside class="sidebar"><div class="brand"><div class="brand-mark">R</div><div><strong>ROAD BIKE CARE</strong><small>メンテナンス管理</small></div></div>
-<template v-if="role==='staff'">
-  <div class="nav-group"><div class="nav-group-title">ホーム</div><button class="nav-item" :class="{active:page==='dashboard'}" @click="setPage('dashboard')"><span class="nav-icon">▦</span>ダッシュボード</button></div>
-  <div class="nav-group"><div class="nav-group-title">顧客・契約管理</div><button v-for="item in [{id:'bikes',label:'顧客・自転車・契約管理',icon:'🚴'}]" :key="item.id" class="nav-item" :class="{active:page===item.id}" @click="setPage(item.id as Page)"><span class="nav-icon">{{item.icon}}</span>{{item.label}}</button></div>
-  <div class="nav-group"><div class="nav-group-title">顧客向けサービス業務</div><button v-for="item in [{id:'overhaul',label:'オーバーホール',icon:'⚙'},{id:'maintenance',label:'メンテナンス計画',icon:'◷'},{id:'events',label:'目標イベント・点検',icon:'◇'},{id:'history',label:'メンテナンス履歴',icon:'▤'}]" :key="item.id" class="nav-item" :class="{active:page===item.id}" @click="setPage(item.id as Page)"><span class="nav-icon">{{item.icon}}</span>{{item.label}}</button></div>
-  <div class="nav-group"><div class="nav-group-title">顧客対応</div><button class="nav-item" :class="{active:page==='messages'}" @click="setPage('messages')"><span class="nav-icon">✉</span>連絡・メール管理</button></div>
-  <div class="nav-group"><div class="nav-group-title">店舗運営・設定</div><button v-for="item in [{id:'shops',label:'店舗・担当者管理',icon:'⌂'},{id:'plans',label:'プラン設定',icon:'▣'}]" :key="item.id" class="nav-item" :class="{active:page===item.id}" @click="setPage(item.id as Page)"><span class="nav-icon">{{item.icon}}</span>{{item.label}}</button></div>
-</template>
-<template v-else><div class="nav-group"><div class="nav-group-title">お客様メニュー</div><button class="nav-item" :class="{active:page==='mypage'}" @click="setPage('mypage')"><span class="nav-icon">▣</span>マイページ</button></div></template>
-<div class="sidebar-bottom"><div class="side-label">表示モード</div><button class="mode-switch" @click="role=role==='staff'?'customer':'staff';page=role==='customer'?'mypage':'dashboard'"><span>{{role==='staff'?'店舗スタッフ':'顧客マイページ'}}</span><span>切替 ↗</span></button><div class="user"><div class="avatar">店</div><div><b>{{role==='staff'?'店舗管理者':'山田 太郎'}}</b><small>{{role==='staff'?'スタッフアカウント':'顧客アカウント'}}</small></div></div></div></aside>
-<main class="main"><header class="topbar"><div class="breadcrumb">ROAD BIKE CARE <span>/</span> {{({dashboard:'ダッシュボード',bikes:'顧客・自転車・契約管理',shops:'店舗・担当者管理',plans:'プラン設定',overhaul:'オーバーホール',maintenance:'メンテナンス計画',events:'目標イベント・点検',history:'メンテナンス履歴',messages:'連絡・メール管理',mypage:'マイページ'} as Record<Page,string>)[page]}}</div><div class="top-actions"><span class="today">{{today}}</span><div class="avatar">店</div></div></header><div class="content"><div class="data-source-indicator" :class="dataSourceStatus"><strong>{{dataSourceStatus==='mock' ? 'MOCK DATA' : dataSourceStatus==='error' ? 'API ERROR' : dataSourceLabel}}</strong><span>{{dataSourceStatus==='mock' ? 'Vue内のサンプルデータを表示中（API通信なし）' : dataSourceStatus==='error' ? 'API接続に失敗。モックデータへの切替は行っていません' : 'バックエンドAPIのデータを使用'}}</span></div><div v-if="notice" class="notice"><span>{{notice}}</span><button @click="notice=''">×</button></div>
-<template v-if="page==='dashboard'"><div class="page-heading"><div><p class="eyebrow">ROAD BIKE SERVICE OVERVIEW</p><h1>ダッシュボード</h1><p class="sub">年間契約・オーバーホール・目標イベントに向けた作業計画を管理します。</p></div></div>
-<div class="callout"><b>年間契約受付：12月1日〜12月31日 ／ 契約期間：12月1日〜翌年11月30日</b><p>オーバーホールは11月〜翌年2月末に実施（受付は12月31日まで）。メンテナンス・点検サポートは目標イベントに合わせて計画します。</p></div>
-<div class="stats"><div class="stat-card"><div class="stat-top"><span>登録自転車数</span><span class="stat-icon blue">🚴</span></div><strong>{{bikes.length}}</strong><small>台</small></div><div class="stat-card"><div class="stat-top"><span>未完了の作業予定</span><span class="stat-icon purple">⚙</span></div><strong>{{upcomingCount}}</strong><small>件</small></div><div class="stat-card"><div class="stat-top"><span>案内待ち</span><span class="stat-icon orange">✉</span></div><strong>{{pendingCount}}</strong><small>件</small></div><div class="stat-card"><div class="stat-top"><span>作業履歴</span><span class="stat-icon green">✓</span></div><strong>{{completedCount}}</strong><small>件</small></div></div>
-<section class="panel"><div class="panel-head"><div><h2>直近の作業予定</h2><p>オーバーホール・メンテナンス・イベント前点検</p></div></div><div class="table-wrap"><table><thead><tr><th><button class="sort-header" @click="toggleListSort('dashboard','customer')">顧客 {{sortLabel('dashboard','customer')}}</button></th><th>自転車</th><th>作業区分</th><th>内容</th><th><button class="sort-header" @click="toggleListSort('dashboard','date')">開始日 {{sortLabel('dashboard','date')}} / 完了日</button></th><th><button class="sort-header" @click="toggleListSort('dashboard','status')">状態 {{sortLabel('dashboard','status')}}</button></th></tr></thead><tbody><tr v-for="w in sortByDate(allUpcoming, 'dashboard', x=>x.date, x=>bikes.find(b=>b.id===x.bikeId)?.customer||'', x=>x.status).slice(0,7)" :key="w.id+'-'+w.kind"><td><button class="customer-link" @click="openCustomerDetail(bikes.find(b=>b.id===w.bikeId)?.customer||'')">{{bikes.find(b=>b.id===w.bikeId)?.customer}}</button></td><td>{{bikes.find(b=>b.id===w.bikeId)?.model}}</td><td>{{w.kind}}</td><td>{{w.title}}</td><td><b>{{w.date}}</b><small class="cell-sub">〜 {{w.endDate||'未定'}}</small></td><td><span class="status info">{{w.status}}</span></td></tr></tbody></table></div></section>
-</template>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">R</div>
+        <div><strong>ROAD BIKE CARE</strong><small>メンテナンス管理</small></div>
+      </div>
+      <template v-if="role === 'staff'">
+        <div class="nav-group">
+          <div class="nav-group-title">ホーム</div>
+          <button
+            class="nav-item"
+            :class="{ active: page === 'dashboard' }"
+            @click="setPage('dashboard')"
+          >
+            <span class="nav-icon">▦</span>ダッシュボード
+          </button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-group-title">顧客・契約管理</div>
+          <button
+            v-for="item in [{ id: 'bikes', label: '顧客・自転車・契約管理', icon: '🚴' }]"
+            :key="item.id"
+            class="nav-item"
+            :class="{ active: page === item.id }"
+            @click="setPage(item.id as Page)"
+          >
+            <span class="nav-icon">{{ item.icon }}</span>{{ item.label }}
+          </button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-group-title">顧客向けサービス業務</div>
+          <button
+            v-for="item in [
+              { id: 'overhaul', label: 'オーバーホール', icon: '⚙' },
+              { id: 'maintenance', label: 'メンテナンス計画', icon: '◷' },
+              { id: 'events', label: '目標イベント・点検', icon: '◇' },
+              { id: 'history', label: 'メンテナンス履歴', icon: '▤' },
+            ]"
+            :key="item.id"
+            class="nav-item"
+            :class="{ active: page === item.id }"
+            @click="setPage(item.id as Page)"
+          >
+            <span class="nav-icon">{{ item.icon }}</span>{{ item.label }}
+          </button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-group-title">顧客対応</div>
+          <button
+            class="nav-item"
+            :class="{ active: page === 'messages' }"
+            @click="setPage('messages')"
+          >
+            <span class="nav-icon">✉</span>連絡・メール管理
+          </button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-group-title">店舗運営・設定</div>
+          <button
+            v-for="item in [
+              { id: 'shops', label: '店舗・担当者管理', icon: '⌂' },
+              { id: 'plans', label: 'プラン設定', icon: '▣' },
+            ]"
+            :key="item.id"
+            class="nav-item"
+            :class="{ active: page === item.id }"
+            @click="setPage(item.id as Page)"
+          >
+            <span class="nav-icon">{{ item.icon }}</span>{{ item.label }}
+          </button>
+        </div>
+      </template>
+      <template v-else
+        ><div class="nav-group">
+          <div class="nav-group-title">お客様メニュー</div>
+          <button
+            class="nav-item"
+            :class="{ active: page === 'mypage' }"
+            @click="setPage('mypage')"
+          >
+            <span class="nav-icon">▣</span>マイページ
+          </button>
+        </div></template
+      >
+      <div class="sidebar-bottom">
+        <div class="side-label">表示モード</div>
+        <button
+          class="mode-switch"
+          @click="
+            role = role === 'staff' ? 'customer' : 'staff';
+            page = role === 'customer' ? 'mypage' : 'dashboard';
+          "
+        >
+          <span>{{ role === 'staff' ? '店舗スタッフ' : '顧客マイページ' }}</span><span>切替 ↗</span>
+        </button>
+        <div class="user">
+          <div class="avatar">店</div>
+          <div>
+            <b>{{ role === 'staff' ? '店舗管理者' : '山田 太郎' }}</b><small>{{
+              role === 'staff' ? 'スタッフアカウント' : '顧客アカウント'
+            }}</small>
+          </div>
+        </div>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="breadcrumb">ROAD BIKE CARE <span>/</span> {{ pageTitles[page] }}</div>
+        <div class="top-actions">
+          <span class="today">{{ today }}</span>
+          <div class="avatar">店</div>
+        </div>
+      </header>
+      <div class="content">
+        <div class="data-source-indicator" :class="dataSourceStatus">
+          <strong>{{
+            dataSourceStatus === 'mock'
+              ? 'MOCK DATA'
+              : dataSourceStatus === 'error'
+                ? 'API ERROR'
+                : dataSourceLabel
+          }}</strong><span>{{
+            dataSourceStatus === 'mock'
+              ? 'Vue内のサンプルデータを表示中（API通信なし）'
+              : dataSourceStatus === 'error'
+                ? 'API接続に失敗。モックデータへの切替は行っていません'
+                : 'バックエンドAPIのデータを使用'
+          }}</span>
+        </div>
+        <div v-if="notice" class="notice">
+          <span>{{ notice }}</span><button @click="notice = ''">×</button>
+        </div>
+        <template v-if="page === 'dashboard'"
+          ><div class="page-heading">
+            <div>
+              <p class="eyebrow">ROAD BIKE SERVICE OVERVIEW</p>
+              <h1>ダッシュボード</h1>
+              <p class="sub">
+                年間契約・オーバーホール・目標イベントに向けた作業計画を管理します。
+              </p>
+            </div>
+          </div>
+          <div class="callout">
+            <b>年間契約受付：12月1日〜12月31日 ／ 契約期間：12月1日〜翌年11月30日</b>
+            <p>
+              オーバーホールは11月〜翌年2月末に実施（受付は12月31日まで）。メンテナンス・点検サポートは目標イベントに合わせて計画します。
+            </p>
+          </div>
+          <div class="stats">
+            <div class="stat-card">
+              <div class="stat-top">
+                <span>登録自転車数</span><span class="stat-icon blue">🚴</span>
+              </div>
+              <strong>{{ bikes.length }}</strong><small>台</small>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">
+                <span>未完了の作業予定</span><span class="stat-icon purple">⚙</span>
+              </div>
+              <strong>{{ upcomingCount }}</strong><small>件</small>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">
+                <span>案内待ち</span><span class="stat-icon orange">✉</span>
+              </div>
+              <strong>{{ pendingCount }}</strong><small>件</small>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">
+                <span>作業履歴</span><span class="stat-icon green">✓</span>
+              </div>
+              <strong>{{ completedCount }}</strong><small>件</small>
+            </div>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>直近の作業予定</h2>
+                <p>オーバーホール・メンテナンス・イベント前点検</p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('dashboard', 'customer')">
+                        顧客 {{ sortLabel('dashboard', 'customer') }}
+                      </button>
+                    </th>
+                    <th>自転車</th>
+                    <th>作業区分</th>
+                    <th>内容</th>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('dashboard', 'date')">
+                        開始日 {{ sortLabel('dashboard', 'date') }} / 完了日
+                      </button>
+                    </th>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('dashboard', 'status')">
+                        状態 {{ sortLabel('dashboard', 'status') }}
+                      </button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="w in sortByDate(
+                      allUpcoming,
+                      'dashboard',
+                      (x) => x.date,
+                      (x) => bikes.find((b) => b.id === x.bikeId)?.customer || '',
+                      (x) => x.status
+                    ).slice(0, 7)"
+                    :key="w.id + '-' + w.kind"
+                  >
+                    <td>
+                      <button
+                        class="customer-link"
+                        @click="
+                          openCustomerDetail(bikes.find((b) => b.id === w.bikeId)?.customer || '')
+                        "
+                      >
+                        {{ bikes.find((b) => b.id === w.bikeId)?.customer }}
+                      </button>
+                    </td>
+                    <td>{{ bikes.find((b) => b.id === w.bikeId)?.model }}</td>
+                    <td>{{ w.kind }}</td>
+                    <td>{{ w.title }}</td>
+                    <td>
+                      <b>{{ w.date }}</b><small class="cell-sub"
+                        >〜 {{ w.endDate || '未定' }}</small
+                      >
+                    </td>
+                    <td>
+                      <span class="status info">{{ w.status }}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </template>
 
-<template v-else-if="page==='shops'"><div class="page-heading"><div><p class="eyebrow">MULTI-STORE MANAGEMENT</p><h1>店舗・受付担当者管理</h1><p class="sub">複数店舗と、店舗ごとの受付担当者を管理します。</p></div><div class="heading-actions"><button class="outline" @click="showStaffModal=true">＋ 担当者を登録</button><button class="primary" @click="showShopModal=true">＋ 店舗を登録</button></div></div><section class="panel"><div class="panel-head"><div><h2>登録店舗一覧</h2><p>{{shops.length}}店舗</p></div><input class="search" v-model="searchShops" placeholder="店舗名・住所・電話・担当者で検索"/></div><div class="table-wrap"><table><thead><tr><th>店舗名</th><th>住所</th><th>電話番号</th><th>受付担当者</th></tr></thead><tbody><tr v-for="shop in shops.filter(x=>matches(searchShops,x.name,x.address,x.phone,staff.filter(y=>y.shopId===x.id).map(y=>y.name).join(' ')))" :key="shop.id"><td><b>{{shop.name}}</b></td><td>{{shop.address}}</td><td>{{shop.phone}}</td><td>{{staff.filter(x=>x.shopId===shop.id).map(x=>x.name).join('、')||'未登録'}}</td></tr></tbody></table></div></section></template><template v-else-if="page==='plans'"><div class="page-heading"><div><p class="eyebrow">PLAN MASTER</p><h1>プラン設定</h1><p class="sub">プランごとにオーバーホール・メンテナンス・点検サポートの回数を別々に設定します。</p></div><button class="primary" @click="showPlanModal=true">＋ プランを追加</button></div><div class="callout"><b>回数枠はそれぞれ独立</b><p>メンテナンスを実施しても点検サポートの回数は減りません。契約終了時の残回数は失効し、翌年度への繰越はありません。</p></div><div class="section-grid"><section v-for="p in plans" :key="p.id" class="panel"><div class="panel-head"><div><h2>{{p.name}}</h2><p>年間契約プラン</p></div><span class="status success">有効</span></div><div class="detail-grid"><div><label>オーバーホール</label><b class="large">{{p.overhaulCount}}回</b></div><div><label>メンテナンス</label><b class="large">{{p.maintenanceCount}}回</b></div><div><label>点検サポート</label><b class="large">{{p.inspectionCount}}回</b></div></div></section></div><div class="panel-foot">※ 追加したプランは年間契約登録時のプラン選択肢に反映されます。既存契約のプラン内容は、新しいプランを追加しても変更されません。</div></template><template v-else-if="page==='bikes'"><div class="page-heading"><div><p class="eyebrow">CUSTOMERS & BICYCLES</p><h1>顧客・自転車・契約管理</h1><p class="sub">自転車ごとに年間プランと契約期間、各サービスの残回数を管理します。</p></div><button class="primary" @click="showContractModal=true">＋ 年間契約を登録</button></div><div class="callout"><b>年間契約の登録と管理をこの画面に集約</b><p>新しい契約は「年間契約を登録」から追加できます。契約期間は12月1日〜翌年11月30日、受付期限は契約開始年の12月31日です。登録後はオーバーホールの受付・実施予定を設定します。</p></div><section class="panel"><div class="panel-head"><div><h2>年間契約一覧</h2><p>{{customers.length}}名・{{bikes.length}}台の自転車が登録されています</p></div><input class="search" v-model="searchBikes" placeholder="顧客・自転車・プラン・店舗で検索"/><span class="count">契約期間：12月1日〜翌年11月30日</span></div><div class="table-wrap"><table><thead><tr><th><button class="sort-header" @click="toggleListSort('bikes','customer')">顧客・自転車 {{sortLabel('bikes','customer')}}</button></th><th>契約プラン</th><th>契約期間</th><th>担当店舗・受付</th><th>OH残</th><th>メンテ残</th><th>点検残</th><th></th></tr></thead><tbody><tr v-for="b in sortByDate(bikes.filter(x=>matches(searchBikes,x.customer,x.model,x.maker,x.model,x.serial,planFor(x).name,shops.find(sh=>sh.id===x.shopId)?.name,x.receptionist)), 'bikes', x=>x.contractStart, x=>x.customer)" :key="b.id"><td><button class="customer-link" @click="openCustomerDetail(b.customer)">{{b.customer}} <small v-if="bikeCountForCustomer(b.customer)>1" class="multi-bike-tag">{{bikeCountForCustomer(b.customer)}}台契約</small></button><small class="cell-sub">{{b.maker}} {{b.model}}</small></td><td>{{planFor(b).name}}</td><td>{{b.contractStart}}〜{{b.contractEnd}}</td><td>{{shops.find(x=>x.id===b.shopId)?.name}} / {{b.receptionist}}</td><td>{{remaining(b,'overhaul')}}/{{planFor(b).overhaulCount}}</td><td>{{remaining(b,'maintenance')}}/{{planFor(b).maintenanceCount}}</td><td>{{remaining(b,'inspection')}}/{{planFor(b).inspectionCount}}</td><td><button class="outline small" @click="openBikeDetail(b.id)">詳細</button></td></tr></tbody></table></div></section></template><template v-else-if="page==='overhaul'"><div class="page-heading"><div><p class="eyebrow">OVERHAUL MANAGEMENT</p><h1>オーバーホール</h1><p class="sub">年間プランに含まれるオーバーホールの予定・実績を管理します。</p></div></div><div class="callout"><b>受付期限：契約開始年の12月31日 ／ 基本実施期間：契約開始年11月1日〜翌年2月末</b><p>オーバーホールの受付は12月末まで可能で、11月中の契約・受付・実施もシステム上登録できます。実施は契約開始年の11月から翌年2月末までです。オーバーホールとメンテナンスは同じ年間プランに含まれます。完了日は記録しますが、その日から一定間隔でメンテナンス予定を自動生成することはありません。</p></div><div class="list-toolbar"><span class="muted">顧客詳細から登録した予定・実績の一覧です。</span></div><section class="panel"><div class="panel-head"><div><h2>オーバーホール予定・実績</h2><p>実施完了時にオーバーホール回数を消費</p></div><div class="list-name-filters"><input class="search" v-model="customerFilterText" placeholder="顧客名で検索"/><input class="search" v-model="bikeFilterText" placeholder="自転車名・メーカーで検索"/><button v-if="customerFilterText||bikeFilterText||selectedBikeFilter" class="outline small" @click="clearBikeNameFilters">条件クリア</button></div><input class="search" v-model="searchOverhauls" placeholder="予定名・作業内容・店舗・担当者で検索"/><span class="count">{{overhauls.filter(x=>matchesBikeFilter(x.bikeId)).length}}件</span></div><div class="table-wrap"><table><thead><tr><th><button class="sort-header" @click="toggleListSort('overhaul','customer')">顧客 {{sortLabel('overhaul','customer')}}</button></th><th>自転車</th><th>作業内容</th><th><button class="sort-header" @click="toggleListSort('overhaul','date')">開始日 {{sortLabel('overhaul','date')}}</button> / 完了日</th><th><button class="sort-header" @click="toggleListSort('overhaul','status')">状態 {{sortLabel('overhaul','status')}}</button></th><th>新規登録可能枠</th><th>操作</th></tr></thead><tbody><tr v-for="w in sortByDate(overhauls.filter(x=>{const b=bikes.find(y=>y.id===x.bikeId);return matchesBikeFilter(x.bikeId)&&matches(searchOverhauls,b?.customer,b?.model,b?.maker,b?.model,x.date,x.status,x.title,x.detail,shops.find(sh=>sh.id===x.shopId)?.name,x.receptionist)}), 'overhaul', x=>x.date, x=>bikes.find(b=>b.id===x.bikeId)?.customer||'', x=>x.status)" :key="w.id"><td><button class="customer-link" @click="openCustomerDetail(bikes.find(b=>b.id===w.bikeId)?.customer||'')">{{bikes.find(b=>b.id===w.bikeId)?.customer}}</button></td><td>{{bikes.find(b=>b.id===w.bikeId)?.model}}</td><td><b>{{w.title}}</b><small class="cell-sub">{{w.detail}}</small></td><td>{{w.date}}<small class="cell-sub">〜 {{w.endDate||'未定'}}</small></td><td><span class="status info">{{w.status}}</span></td><td>{{scheduleRemaining(bikes.find(b=>b.id===w.bikeId)!,'overhaul')}}回</td><td><button v-if="w.status!=='完了'" class="outline small" @click="openEdit('overhaul',w)">編集</button> <button v-if="w.status==='予定'||w.status==='予約済み'||w.status==='案内済み'" class="outline small" @click="startWork('overhaul',w)">作業開始</button> <button v-if="w.status==='作業中'" class="primary small" @click="startCompletion('overhaul',w)">完了登録</button><span v-if="w.status==='完了'" class="done">✓ 完了</span></td></tr></tbody></table></div></section></template>
+        <template v-else-if="page === 'shops'"
+          ><div class="page-heading">
+            <div>
+              <p class="eyebrow">MULTI-STORE MANAGEMENT</p>
+              <h1>店舗・受付担当者管理</h1>
+              <p class="sub">複数店舗と、店舗ごとの受付担当者を管理します。</p>
+            </div>
+            <div class="heading-actions">
+              <button class="outline" @click="showStaffModal = true">＋ 担当者を登録</button
+              ><button class="primary" @click="showShopModal = true">＋ 店舗を登録</button>
+            </div>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>登録店舗一覧</h2>
+                <p>{{ shops.length }}店舗</p>
+              </div>
+              <input
+                class="search"
+                v-model="searchShops"
+                placeholder="店舗名・住所・電話・担当者で検索"
+              />
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>店舗名</th>
+                    <th>住所</th>
+                    <th>電話番号</th>
+                    <th>受付担当者</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="shop in shops.filter((x) =>
+                      matches(
+                        searchShops,
+                        x.name,
+                        x.address,
+                        x.phone,
+                        staff
+                          .filter((y) => y.shopId === x.id)
+                          .map((y) => y.name)
+                          .join(' ')
+                      )
+                    )"
+                    :key="shop.id"
+                  >
+                    <td>
+                      <b>{{ shop.name }}</b>
+                    </td>
+                    <td>{{ shop.address }}</td>
+                    <td>{{ shop.phone }}</td>
+                    <td>
+                      {{
+                        staff
+                          .filter((x) => x.shopId === shop.id)
+                          .map((x) => x.name)
+                          .join('、') || '未登録'
+                      }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section></template
+        ><template v-else-if="page === 'plans'"
+          ><div class="page-heading">
+            <div>
+              <p class="eyebrow">PLAN MASTER</p>
+              <h1>プラン設定</h1>
+              <p class="sub">
+                プランごとにオーバーホール・メンテナンス・点検サポートの回数を別々に設定します。
+              </p>
+            </div>
+            <button class="primary" @click="showPlanModal = true">＋ プランを追加</button>
+          </div>
+          <div class="callout">
+            <b>回数枠はそれぞれ独立</b>
+            <p>
+              メンテナンスを実施しても点検サポートの回数は減りません。契約終了時の残回数は失効し、翌年度への繰越はありません。
+            </p>
+          </div>
+          <div class="section-grid">
+            <section v-for="p in plans" :key="p.id" class="panel">
+              <div class="panel-head">
+                <div>
+                  <h2>{{ p.name }}</h2>
+                  <p>年間契約プラン</p>
+                </div>
+                <span class="status success">有効</span>
+              </div>
+              <div class="detail-grid">
+                <div>
+                  <label>オーバーホール</label><b class="large">{{ p.overhaulCount }}回</b>
+                </div>
+                <div>
+                  <label>メンテナンス</label><b class="large">{{ p.maintenanceCount }}回</b>
+                </div>
+                <div>
+                  <label>点検サポート</label><b class="large">{{ p.inspectionCount }}回</b>
+                </div>
+              </div>
+            </section>
+          </div>
+          <div class="panel-foot">
+            ※
+            追加したプランは年間契約登録時のプラン選択肢に反映されます。既存契約のプラン内容は、新しいプランを追加しても変更されません。
+          </div></template
+        ><template v-else-if="page === 'bikes'"
+          ><div class="page-heading">
+            <div>
+              <p class="eyebrow">CUSTOMERS & BICYCLES</p>
+              <h1>顧客・自転車・契約管理</h1>
+              <p class="sub">自転車ごとに年間プランと契約期間、各サービスの残回数を管理します。</p>
+            </div>
+            <button class="primary" @click="showContractModal = true">＋ 年間契約を登録</button>
+          </div>
+          <div class="callout">
+            <b>年間契約の登録と管理をこの画面に集約</b>
+            <p>
+              新しい契約は「年間契約を登録」から追加できます。契約期間は12月1日〜翌年11月30日、受付期限は契約開始年の12月31日です。登録後はオーバーホールの受付・実施予定を設定します。
+            </p>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>年間契約一覧</h2>
+                <p>{{ customers.length }}名・{{ bikes.length }}台の自転車が登録されています</p>
+              </div>
+              <input
+                class="search"
+                v-model="searchBikes"
+                placeholder="顧客・自転車・プラン・店舗で検索"
+              /><span class="count">契約期間：12月1日〜翌年11月30日</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('bikes', 'customer')">
+                        顧客・自転車 {{ sortLabel('bikes', 'customer') }}
+                      </button>
+                    </th>
+                    <th>契約プラン</th>
+                    <th>契約期間</th>
+                    <th>担当店舗・受付</th>
+                    <th>OH残</th>
+                    <th>メンテ残</th>
+                    <th>点検残</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="b in sortByDate(
+                      bikes.filter((x) =>
+                        matches(
+                          searchBikes,
+                          x.customer,
+                          x.model,
+                          x.maker,
+                          x.model,
+                          x.serial,
+                          planFor(x).name,
+                          shops.find((sh) => sh.id === x.shopId)?.name,
+                          x.receptionist
+                        )
+                      ),
+                      'bikes',
+                      (x) => x.contractStart,
+                      (x) => x.customer
+                    )"
+                    :key="b.id"
+                  >
+                    <td>
+                      <button class="customer-link" @click="openCustomerDetail(b.customer)">
+                        {{ b.customer }}
+                        <small v-if="bikeCountForCustomer(b.customer) > 1" class="multi-bike-tag"
+                          >{{ bikeCountForCustomer(b.customer) }}台契約</small
+                        ></button
+                      ><small class="cell-sub">{{ b.maker }} {{ b.model }}</small>
+                    </td>
+                    <td>{{ planFor(b).name }}</td>
+                    <td>{{ b.contractStart }}〜{{ b.contractEnd }}</td>
+                    <td>{{ shops.find((x) => x.id === b.shopId)?.name }} / {{ b.receptionist }}</td>
+                    <td>{{ remaining(b, 'overhaul') }}/{{ planFor(b).overhaulCount }}</td>
+                    <td>{{ remaining(b, 'maintenance') }}/{{ planFor(b).maintenanceCount }}</td>
+                    <td>{{ remaining(b, 'inspection') }}/{{ planFor(b).inspectionCount }}</td>
+                    <td>
+                      <button class="outline small" @click="openBikeDetail(b.id)">詳細</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section></template
+        ><template v-else-if="page === 'overhaul'"
+          ><div class="page-heading">
+            <div>
+              <p class="eyebrow">OVERHAUL MANAGEMENT</p>
+              <h1>オーバーホール</h1>
+              <p class="sub">年間プランに含まれるオーバーホールの予定・実績を管理します。</p>
+            </div>
+          </div>
+          <div class="callout">
+            <b>受付期限：契約開始年の12月31日 ／ 基本実施期間：契約開始年11月1日〜翌年2月末</b>
+            <p>
+              オーバーホールの受付は12月末まで可能で、11月中の契約・受付・実施もシステム上登録できます。実施は契約開始年の11月から翌年2月末までです。オーバーホールとメンテナンスは同じ年間プランに含まれます。完了日は記録しますが、その日から一定間隔でメンテナンス予定を自動生成することはありません。
+            </p>
+          </div>
+          <div class="list-toolbar">
+            <span class="muted">顧客詳細から登録した予定・実績の一覧です。</span>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>オーバーホール予定・実績</h2>
+                <p>実施完了時にオーバーホール回数を消費</p>
+              </div>
+              <div class="list-name-filters">
+                <input
+                  class="search"
+                  v-model="customerFilterText"
+                  placeholder="顧客名で検索"
+                /><input
+                  class="search"
+                  v-model="bikeFilterText"
+                  placeholder="自転車名・メーカーで検索"
+                /><button
+                  v-if="customerFilterText || bikeFilterText || selectedBikeFilter"
+                  class="outline small"
+                  @click="clearBikeNameFilters"
+                >
+                  条件クリア
+                </button>
+              </div>
+              <input
+                class="search"
+                v-model="searchOverhauls"
+                placeholder="予定名・作業内容・店舗・担当者で検索"
+              /><span class="count"
+                >{{ overhauls.filter((x) => matchesBikeFilter(x.bikeId)).length }}件</span
+              >
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('overhaul', 'customer')">
+                        顧客 {{ sortLabel('overhaul', 'customer') }}
+                      </button>
+                    </th>
+                    <th>自転車</th>
+                    <th>作業内容</th>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('overhaul', 'date')">
+                        開始日 {{ sortLabel('overhaul', 'date') }}
+                      </button>
+                      / 完了日
+                    </th>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('overhaul', 'status')">
+                        状態 {{ sortLabel('overhaul', 'status') }}
+                      </button>
+                    </th>
+                    <th>新規登録可能枠</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="w in sortByDate(
+                      overhauls.filter((x) => {
+                        const b = bikes.find((y) => y.id === x.bikeId);
+                        return (
+                          matchesBikeFilter(x.bikeId) &&
+                          matches(
+                            searchOverhauls,
+                            b?.customer,
+                            b?.model,
+                            b?.maker,
+                            b?.model,
+                            x.date,
+                            x.status,
+                            x.title,
+                            x.detail,
+                            shops.find((sh) => sh.id === x.shopId)?.name,
+                            x.receptionist
+                          )
+                        );
+                      }),
+                      'overhaul',
+                      (x) => x.date,
+                      (x) => bikes.find((b) => b.id === x.bikeId)?.customer || '',
+                      (x) => x.status
+                    )"
+                    :key="w.id"
+                  >
+                    <td>
+                      <button
+                        class="customer-link"
+                        @click="
+                          openCustomerDetail(bikes.find((b) => b.id === w.bikeId)?.customer || '')
+                        "
+                      >
+                        {{ bikes.find((b) => b.id === w.bikeId)?.customer }}
+                      </button>
+                    </td>
+                    <td>{{ bikes.find((b) => b.id === w.bikeId)?.model }}</td>
+                    <td>
+                      <b>{{ w.title }}</b><small class="cell-sub">{{ w.detail }}</small>
+                    </td>
+                    <td>
+                      {{ w.date }}<small class="cell-sub">〜 {{ w.endDate || '未定' }}</small>
+                    </td>
+                    <td>
+                      <span class="status info">{{ w.status }}</span>
+                    </td>
+                    <td>
+                      {{
+                        scheduleRemaining(
+                          bikes.find((b) => b.id === w.bikeId)!,
+                          'overhaul'
+                        )
+                      }}回
+                    </td>
+                    <td>
+                      <button
+                        v-if="w.status !== '完了'"
+                        class="outline small"
+                        @click="openEdit('overhaul', w)"
+                      >
+                        編集
+                      </button>
+                      <button
+                        v-if="
+                          w.status === '予定' || w.status === '予約済み' || w.status === '案内済み'
+                        "
+                        class="outline small"
+                        @click="startWork('overhaul', w)"
+                      >
+                        作業開始
+                      </button>
+                      <button
+                        v-if="w.status === '作業中'"
+                        class="primary small"
+                        @click="startCompletion('overhaul', w)"
+                      >
+                        完了登録</button
+                      ><span v-if="w.status === '完了'" class="done">✓ 完了</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section></template
+        >
 
-<template v-else-if="page==='maintenance'"><div class="page-heading"><div><p class="eyebrow">MAINTENANCE PLANNING</p><h1>メンテナンス計画</h1><p class="sub">顧客の目標イベントに合わせてスタッフが実施計画を作成します。</p></div></div><div class="callout"><b>固定周期ではなく、目標イベントに合わせた計画</b><p>2か月おきの自動生成は行いません。メインイベントの日程・目標・車体の状態を踏まえて必要なタイミングで計画します。実施完了時のみメンテナンス回数を消費します。</p></div><div class="list-toolbar"><span class="muted">顧客詳細から登録した計画の一覧です。</span></div><section class="panel"><div class="panel-head"><div><h2>メンテナンス計画一覧</h2><p>予定・案内・予約は回数を消費しません</p></div><div class="list-name-filters"><input class="search" v-model="customerFilterText" placeholder="顧客名で検索"/><input class="search" v-model="bikeFilterText" placeholder="自転車名・メーカーで検索"/><button v-if="customerFilterText||bikeFilterText||selectedBikeFilter" class="outline small" @click="clearBikeNameFilters">条件クリア</button></div><input class="search" v-model="searchMaintenance" placeholder="計画名・作業内容・店舗・担当者で検索"/><span class="count">{{maintenance.filter(x=>matchesBikeFilter(x.bikeId)).length}}件</span></div><div class="table-wrap"><table><thead><tr><th><button class="sort-header" @click="toggleListSort('maintenance','customer')">顧客 {{sortLabel('maintenance','customer')}}</button></th><th>自転車</th><th>計画・作業内容</th><th><button class="sort-header" @click="toggleListSort('maintenance','date')">開始日 {{sortLabel('maintenance','date')}}</button> / 完了日</th><th><button class="sort-header" @click="toggleListSort('maintenance','status')">状態 {{sortLabel('maintenance','status')}}</button></th><th>新規登録可能枠</th><th>受付担当</th><th>操作</th></tr></thead><tbody><tr v-for="w in sortByDate(maintenance.filter(x=>{const b=bikes.find(y=>y.id===x.bikeId);return matchesBikeFilter(x.bikeId)&&matches(searchMaintenance,b?.customer,b?.model,b?.maker,b?.model,x.date,x.status,x.title,x.detail,shops.find(sh=>sh.id===x.shopId)?.name,x.receptionist)}), 'maintenance', x=>x.date, x=>bikes.find(b=>b.id===x.bikeId)?.customer||'', x=>x.status)" :key="w.id"><td><button class="customer-link" @click="openCustomerDetail(bikes.find(b=>b.id===w.bikeId)?.customer||'')">{{bikes.find(b=>b.id===w.bikeId)?.customer}}</button></td><td>{{bikes.find(b=>b.id===w.bikeId)?.model}}</td><td><b>{{w.title}}</b><small class="cell-sub">{{w.detail}}</small></td><td><b>{{w.date}}</b><small class="cell-sub">〜 {{w.endDate||'未定'}}</small></td><td><select v-if="w.status!=='完了'" class="status-select" v-model="w.status"><option>予定</option><option>案内待ち</option><option>案内済み</option><option>予約済み</option><option>作業中</option><option>キャンセル</option></select><span v-else class="done">✓ 完了</span></td><td>{{scheduleRemaining(bikes.find(b=>b.id===w.bikeId)!,'maintenance')}}回</td><td>{{shops.find(x=>x.id===w.shopId)?.name}} / {{w.receptionist}}</td><td><button v-if="w.status!=='完了'" class="outline small" @click="openEdit('maintenance',w)">編集</button> <button v-if="w.status==='予定'||w.status==='予約済み'||w.status==='案内済み'" class="outline small" @click="startWork('maintenance',w)">作業開始</button> <button v-if="w.status==='作業中'" class="primary small" @click="startCompletion('maintenance',w)">完了登録</button><span v-if="w.status==='完了'" class="done">✓ 完了</span></td></tr></tbody></table></div></section></template>
+        <template v-else-if="page === 'maintenance'"
+          ><div class="page-heading">
+            <div>
+              <p class="eyebrow">MAINTENANCE PLANNING</p>
+              <h1>メンテナンス計画</h1>
+              <p class="sub">顧客の目標イベントに合わせてスタッフが実施計画を作成します。</p>
+            </div>
+          </div>
+          <div class="callout">
+            <b>固定周期ではなく、目標イベントに合わせた計画</b>
+            <p>
+              2か月おきの自動生成は行いません。メインイベントの日程・目標・車体の状態を踏まえて必要なタイミングで計画します。実施完了時のみメンテナンス回数を消費します。
+            </p>
+          </div>
+          <div class="list-toolbar">
+            <span class="muted">顧客詳細から登録した計画の一覧です。</span>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>メンテナンス計画一覧</h2>
+                <p>予定・案内・予約は回数を消費しません</p>
+              </div>
+              <div class="list-name-filters">
+                <input
+                  class="search"
+                  v-model="customerFilterText"
+                  placeholder="顧客名で検索"
+                /><input
+                  class="search"
+                  v-model="bikeFilterText"
+                  placeholder="自転車名・メーカーで検索"
+                /><button
+                  v-if="customerFilterText || bikeFilterText || selectedBikeFilter"
+                  class="outline small"
+                  @click="clearBikeNameFilters"
+                >
+                  条件クリア
+                </button>
+              </div>
+              <input
+                class="search"
+                v-model="searchMaintenance"
+                placeholder="計画名・作業内容・店舗・担当者で検索"
+              /><span class="count"
+                >{{ maintenance.filter((x) => matchesBikeFilter(x.bikeId)).length }}件</span
+              >
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>
+                      <button
+                        class="sort-header"
+                        @click="toggleListSort('maintenance', 'customer')"
+                      >
+                        顧客 {{ sortLabel('maintenance', 'customer') }}
+                      </button>
+                    </th>
+                    <th>自転車</th>
+                    <th>計画・作業内容</th>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('maintenance', 'date')">
+                        開始日 {{ sortLabel('maintenance', 'date') }}
+                      </button>
+                      / 完了日
+                    </th>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('maintenance', 'status')">
+                        状態 {{ sortLabel('maintenance', 'status') }}
+                      </button>
+                    </th>
+                    <th>新規登録可能枠</th>
+                    <th>受付担当</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="w in sortByDate(
+                      maintenance.filter((x) => {
+                        const b = bikes.find((y) => y.id === x.bikeId);
+                        return (
+                          matchesBikeFilter(x.bikeId) &&
+                          matches(
+                            searchMaintenance,
+                            b?.customer,
+                            b?.model,
+                            b?.maker,
+                            b?.model,
+                            x.date,
+                            x.status,
+                            x.title,
+                            x.detail,
+                            shops.find((sh) => sh.id === x.shopId)?.name,
+                            x.receptionist
+                          )
+                        );
+                      }),
+                      'maintenance',
+                      (x) => x.date,
+                      (x) => bikes.find((b) => b.id === x.bikeId)?.customer || '',
+                      (x) => x.status
+                    )"
+                    :key="w.id"
+                  >
+                    <td>
+                      <button
+                        class="customer-link"
+                        @click="
+                          openCustomerDetail(bikes.find((b) => b.id === w.bikeId)?.customer || '')
+                        "
+                      >
+                        {{ bikes.find((b) => b.id === w.bikeId)?.customer }}
+                      </button>
+                    </td>
+                    <td>{{ bikes.find((b) => b.id === w.bikeId)?.model }}</td>
+                    <td>
+                      <b>{{ w.title }}</b><small class="cell-sub">{{ w.detail }}</small>
+                    </td>
+                    <td>
+                      <b>{{ w.date }}</b><small class="cell-sub"
+                        >〜 {{ w.endDate || '未定' }}</small
+                      >
+                    </td>
+                    <td>
+                      <select v-if="w.status !== '完了'" class="status-select" v-model="w.status">
+                        <option>予定</option>
+                        <option>案内待ち</option>
+                        <option>案内済み</option>
+                        <option>予約済み</option>
+                        <option>作業中</option>
+                        <option>キャンセル</option></select
+                      ><span v-else class="done">✓ 完了</span>
+                    </td>
+                    <td>
+                      {{
+                        scheduleRemaining(
+                          bikes.find((b) => b.id === w.bikeId)!,
+                          'maintenance'
+                        )
+                      }}回
+                    </td>
+                    <td>{{ shops.find((x) => x.id === w.shopId)?.name }} / {{ w.receptionist }}</td>
+                    <td>
+                      <button
+                        v-if="w.status !== '完了'"
+                        class="outline small"
+                        @click="openEdit('maintenance', w)"
+                      >
+                        編集
+                      </button>
+                      <button
+                        v-if="
+                          w.status === '予定' || w.status === '予約済み' || w.status === '案内済み'
+                        "
+                        class="outline small"
+                        @click="startWork('maintenance', w)"
+                      >
+                        作業開始
+                      </button>
+                      <button
+                        v-if="w.status === '作業中'"
+                        class="primary small"
+                        @click="startCompletion('maintenance', w)"
+                      >
+                        完了登録</button
+                      ><span v-if="w.status === '完了'" class="done">✓ 完了</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section></template
+        >
 
-<template v-else-if="page==='events'"><div class="page-heading"><div><p class="eyebrow">TARGET EVENTS & INSPECTIONS</p><h1>目標イベント・点検サポート</h1><p class="sub">顧客のメインイベントと、その前に行う点検サポートを管理します。</p></div></div><div class="callout"><b>点検サポートはメンテナンスとは別枠</b><p>点検サポートの実施完了時にのみ、プランの点検回数を1回消費します。メンテナンス回数とは相互に影響しません。</p></div><div class="list-toolbar"><span class="muted">顧客詳細から登録したイベント・点検予定の一覧です。</span></div><section class="panel"><div class="panel-head"><div><h2>イベント・点検サポート一覧</h2><p>点検完了時に点検サポート枠を消費</p></div><div class="list-name-filters"><input class="search" v-model="customerFilterText" placeholder="顧客名で検索"/><input class="search" v-model="bikeFilterText" placeholder="自転車名・メーカーで検索"/><button v-if="customerFilterText||bikeFilterText||selectedBikeFilter" class="outline small" @click="clearBikeNameFilters">条件クリア</button></div><input class="search" v-model="searchEvents" placeholder="イベント名・メモ・店舗・担当者で検索"/><span class="count">{{eventChecks.filter(x=>matchesBikeFilter(x.bikeId)).length}}件</span></div><div class="table-wrap"><table><thead><tr><th><button class="sort-header" @click="toggleListSort('events','customer')">顧客 {{sortLabel('events','customer')}}</button></th><th>自転車</th><th>イベント名</th><th>開催日</th><th><button class="sort-header" @click="toggleListSort('events','date')">点検開始日 {{sortLabel('events','date')}}</button> / 完了日</th><th><button class="sort-header" @click="toggleListSort('events','status')">状態 {{sortLabel('events','status')}}</button></th><th>新規登録可能枠</th><th>受付担当</th><th>操作</th></tr></thead><tbody><tr v-for="e in sortByDate(eventChecks.filter(x=>{const b=bikes.find(y=>y.id===x.bikeId);return matchesBikeFilter(x.bikeId)&&matches(searchEvents,x.name,x.memo,x.eventDate,x.inspectionDate,x.status,b?.customer,b?.model,b?.maker,b?.model,shops.find(sh=>sh.id===x.shopId)?.name,x.receptionist)}), 'events', x=>x.inspectionDate, x=>bikes.find(b=>b.id===x.bikeId)?.customer||'', x=>x.status)" :key="e.id"><td>{{bikes.find(b=>b.id===e.bikeId)?.customer}}</td><td>{{bikes.find(b=>b.id===e.bikeId)?.model}}</td><td><b>{{e.name}}</b><small class="cell-sub">{{e.memo}}</small></td><td>{{e.eventDate}}</td><td>{{e.inspectionDate}}<small class="cell-sub">〜 {{e.endDate||'未定'}}</small></td><td><span class="status info">{{e.status}}</span></td><td>{{scheduleRemaining(bikes.find(b=>b.id===e.bikeId)!,'inspection')}}回</td><td>{{shops.find(x=>x.id===e.shopId)?.name}} / {{e.receptionist}}</td><td><button v-if="e.status!=='完了'" class="outline small" @click="openEdit('event',e)">編集</button> <button v-if="e.status==='予定'||e.status==='予約済み'||e.status==='案内済み'" class="outline small" @click="startWork('event',e)">作業開始</button> <button v-if="e.status==='作業中'" class="primary small" @click="startCompletion('event',e)">完了登録</button><span v-if="e.status==='完了'" class="done">✓ 完了</span></td></tr></tbody></table></div></section></template>
+        <template v-else-if="page === 'events'"
+          ><div class="page-heading">
+            <div>
+              <p class="eyebrow">TARGET EVENTS & INSPECTIONS</p>
+              <h1>目標イベント・点検サポート</h1>
+              <p class="sub">顧客のメインイベントと、その前に行う点検サポートを管理します。</p>
+            </div>
+          </div>
+          <div class="callout">
+            <b>点検サポートはメンテナンスとは別枠</b>
+            <p>
+              点検サポートの実施完了時にのみ、プランの点検回数を1回消費します。メンテナンス回数とは相互に影響しません。
+            </p>
+          </div>
+          <div class="list-toolbar">
+            <span class="muted">顧客詳細から登録したイベント・点検予定の一覧です。</span>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>イベント・点検サポート一覧</h2>
+                <p>点検完了時に点検サポート枠を消費</p>
+              </div>
+              <div class="list-name-filters">
+                <input
+                  class="search"
+                  v-model="customerFilterText"
+                  placeholder="顧客名で検索"
+                /><input
+                  class="search"
+                  v-model="bikeFilterText"
+                  placeholder="自転車名・メーカーで検索"
+                /><button
+                  v-if="customerFilterText || bikeFilterText || selectedBikeFilter"
+                  class="outline small"
+                  @click="clearBikeNameFilters"
+                >
+                  条件クリア
+                </button>
+              </div>
+              <input
+                class="search"
+                v-model="searchEvents"
+                placeholder="イベント名・メモ・店舗・担当者で検索"
+              /><span class="count"
+                >{{ eventChecks.filter((x) => matchesBikeFilter(x.bikeId)).length }}件</span
+              >
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('events', 'customer')">
+                        顧客 {{ sortLabel('events', 'customer') }}
+                      </button>
+                    </th>
+                    <th>自転車</th>
+                    <th>イベント名</th>
+                    <th>開催日</th>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('events', 'date')">
+                        点検開始日 {{ sortLabel('events', 'date') }}
+                      </button>
+                      / 完了日
+                    </th>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('events', 'status')">
+                        状態 {{ sortLabel('events', 'status') }}
+                      </button>
+                    </th>
+                    <th>新規登録可能枠</th>
+                    <th>受付担当</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="e in sortByDate(
+                      eventChecks.filter((x) => {
+                        const b = bikes.find((y) => y.id === x.bikeId);
+                        return (
+                          matchesBikeFilter(x.bikeId) &&
+                          matches(
+                            searchEvents,
+                            x.name,
+                            x.memo,
+                            x.eventDate,
+                            x.inspectionDate,
+                            x.status,
+                            b?.customer,
+                            b?.model,
+                            b?.maker,
+                            b?.model,
+                            shops.find((sh) => sh.id === x.shopId)?.name,
+                            x.receptionist
+                          )
+                        );
+                      }),
+                      'events',
+                      (x) => x.inspectionDate,
+                      (x) => bikes.find((b) => b.id === x.bikeId)?.customer || '',
+                      (x) => x.status
+                    )"
+                    :key="e.id"
+                  >
+                    <td>{{ bikes.find((b) => b.id === e.bikeId)?.customer }}</td>
+                    <td>{{ bikes.find((b) => b.id === e.bikeId)?.model }}</td>
+                    <td>
+                      <b>{{ e.name }}</b><small class="cell-sub">{{ e.memo }}</small>
+                    </td>
+                    <td>{{ e.eventDate }}</td>
+                    <td>
+                      {{ e.inspectionDate
+                      }}<small class="cell-sub">〜 {{ e.endDate || '未定' }}</small>
+                    </td>
+                    <td>
+                      <span class="status info">{{ e.status }}</span>
+                    </td>
+                    <td>
+                      {{
+                        scheduleRemaining(
+                          bikes.find((b) => b.id === e.bikeId)!,
+                          'inspection'
+                        )
+                      }}回
+                    </td>
+                    <td>{{ shops.find((x) => x.id === e.shopId)?.name }} / {{ e.receptionist }}</td>
+                    <td>
+                      <button
+                        v-if="e.status !== '完了'"
+                        class="outline small"
+                        @click="openEdit('event', e)"
+                      >
+                        編集
+                      </button>
+                      <button
+                        v-if="
+                          e.status === '予定' || e.status === '予約済み' || e.status === '案内済み'
+                        "
+                        class="outline small"
+                        @click="startWork('event', e)"
+                      >
+                        作業開始
+                      </button>
+                      <button
+                        v-if="e.status === '作業中'"
+                        class="primary small"
+                        @click="startCompletion('event', e)"
+                      >
+                        完了登録</button
+                      ><span v-if="e.status === '完了'" class="done">✓ 完了</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section></template
+        >
 
-<template v-else-if="page==='history'"><div class="page-heading"><div><p class="eyebrow">SERVICE HISTORY</p><h1>メンテナンス履歴</h1><p class="sub">自転車ごとのオーバーホール・メンテナンス・点検サポートの履歴です。</p></div><select class="search" v-model.number="selectedBikeId"><option v-for="b in bikes" :key="b.id" :value="b.id">{{b.customer}} / {{b.model}}</option></select></div><section class="panel"><div class="panel-head"><div><h2>{{selectedBike.maker}} {{selectedBike.model}}</h2><p>{{selectedBike.customer}} 様の作業履歴</p></div><input class="search" v-model="searchHistory" placeholder="作業区分・作業名・詳細で検索"/><span class="count">{{histories.filter(h=>h.bikeId===selectedBikeId).length}}件</span></div><div class="table-wrap"><table><thead><tr><th><button class="sort-header" @click="toggleListSort('history','date')">開始日 {{sortLabel('history','date')}} / 完了日 {{sortLabel('history','date')}}</button></th><th>作業区分</th><th>作業内容</th><th>作業時のメモ</th><th>詳細</th></tr></thead><tbody><tr v-for="h in sortByDate(histories.filter(x=>x.bikeId===selectedBikeId&&matches(searchHistory,x.date,x.category,x.title,x.detail,x.memo)), 'history', x=>x.date)" :key="h.id"><td><b>{{h.startDate||h.date}}</b><small class="cell-sub">〜 {{h.date}}</small></td><td>{{h.category}}</td><td>{{h.title}}</td><td class="memo-cell">{{h.memo||'—'}}</td><td>{{h.detail}}</td></tr></tbody></table></div></section></template>
+        <template v-else-if="page === 'history'"
+          ><div class="page-heading">
+            <div>
+              <p class="eyebrow">SERVICE HISTORY</p>
+              <h1>メンテナンス履歴</h1>
+              <p class="sub">自転車ごとのオーバーホール・メンテナンス・点検サポートの履歴です。</p>
+            </div>
+            <select class="search" v-model.number="selectedBikeId">
+              <option v-for="b in bikes" :key="b.id" :value="b.id">
+                {{ b.customer }} / {{ b.model }}
+              </option>
+            </select>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>{{ selectedBike.maker }} {{ selectedBike.model }}</h2>
+                <p>{{ selectedBike.customer }} 様の作業履歴</p>
+              </div>
+              <input
+                class="search"
+                v-model="searchHistory"
+                placeholder="作業区分・作業名・詳細で検索"
+              /><span class="count"
+                >{{ histories.filter((h) => h.bikeId === selectedBikeId).length }}件</span
+              >
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('history', 'date')">
+                        開始日 {{ sortLabel('history', 'date') }} / 完了日
+                        {{ sortLabel('history', 'date') }}
+                      </button>
+                    </th>
+                    <th>作業区分</th>
+                    <th>作業内容</th>
+                    <th>作業時のメモ</th>
+                    <th>詳細</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="h in sortByDate(
+                      histories.filter(
+                        (x) =>
+                          x.bikeId === selectedBikeId &&
+                          matches(searchHistory, x.date, x.category, x.title, x.detail, x.memo)
+                      ),
+                      'history',
+                      (x) => x.date
+                    )"
+                    :key="h.id"
+                  >
+                    <td>
+                      <b>{{ h.startDate || h.date }}</b><small class="cell-sub"
+                        >〜 {{ h.date }}</small
+                      >
+                    </td>
+                    <td>{{ h.category }}</td>
+                    <td>{{ h.title }}</td>
+                    <td class="memo-cell">{{ h.memo || '—' }}</td>
+                    <td>{{ h.detail }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section></template
+        >
 
-<template v-else-if="page==='messages'"><div class="page-heading"><div><p class="eyebrow">COMMUNICATION</p><h1>連絡・メール管理</h1><p class="sub">イベント・メンテナンス予定に関する顧客連絡を管理します。</p></div><button class="primary" @click="showMail=true">✉ メールを作成</button></div><section class="panel"><div class="panel-head"><div><h2>案内待ちのメンテナンス・点検</h2><p>顧客への連絡が必要な予定</p></div><input class="search" v-model="searchMessages" placeholder="顧客・自転車・予定日・区分で検索"/><span class="status warning">{{pendingCount}}件</span></div><div class="table-wrap"><table><thead><tr><th><button class="sort-header" @click="toggleListSort('messages','customer')">顧客 {{sortLabel('messages','customer')}}</button></th><th>自転車</th><th>作業区分</th><th>予定内容</th><th><button class="sort-header" @click="toggleListSort('messages','date')">予定日 {{sortLabel('messages','date')}}</button></th><th>操作</th></tr></thead><tbody><tr v-for="w in sortByDate([...maintenance.filter(x=>x.status==='案内待ち').map(x=>({...x,kind:'メンテナンス'})),...eventChecks.filter(x=>x.status==='案内待ち').map(x=>({...x,date:x.inspectionDate,title:x.name,kind:'点検サポート'}))].filter(x=>{const b=bikes.find(y=>y.id===x.bikeId);return matches(searchMessages,b?.customer,b?.model,x.date,x.title,x.kind)}), 'messages', x=>x.date, x=>bikes.find(b=>b.id===x.bikeId)?.customer||'', x=>x.status)" :key="w.id"><td><button class="customer-link" @click="openCustomerDetail(bikes.find(b=>b.id===w.bikeId)?.customer||'')">{{bikes.find(b=>b.id===w.bikeId)?.customer}}</button></td><td>{{bikes.find(b=>b.id===w.bikeId)?.model}}</td><td>{{w.kind}}</td><td>{{w.title}}</td><td>{{w.date}}</td><td><button class="outline small" @click="mailTarget=bikes.find(b=>b.id===w.bikeId)?.customer||'';mailKind=w.kind+'のご案内';showMail=true">内容確認</button></td></tr></tbody></table></div></section></template>
+        <template v-else-if="page === 'messages'"
+          ><div class="page-heading">
+            <div>
+              <p class="eyebrow">COMMUNICATION</p>
+              <h1>連絡・メール管理</h1>
+              <p class="sub">イベント・メンテナンス予定に関する顧客連絡を管理します。</p>
+            </div>
+            <button class="primary" @click="showMail = true">✉ メールを作成</button>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>案内待ちのメンテナンス・点検</h2>
+                <p>顧客への連絡が必要な予定</p>
+              </div>
+              <input
+                class="search"
+                v-model="searchMessages"
+                placeholder="顧客・自転車・予定日・区分で検索"
+              /><span class="status warning">{{ pendingCount }}件</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('messages', 'customer')">
+                        顧客 {{ sortLabel('messages', 'customer') }}
+                      </button>
+                    </th>
+                    <th>自転車</th>
+                    <th>作業区分</th>
+                    <th>予定内容</th>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('messages', 'date')">
+                        予定日 {{ sortLabel('messages', 'date') }}
+                      </button>
+                    </th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="w in sortByDate(
+                      [
+                        ...maintenance
+                          .filter((x) => x.status === '案内待ち')
+                          .map((x) => ({ ...x, kind: 'メンテナンス' })),
+                        ...eventChecks
+                          .filter((x) => x.status === '案内待ち')
+                          .map((x) => ({
+                            ...x,
+                            date: x.inspectionDate,
+                            title: x.name,
+                            kind: '点検サポート',
+                          })),
+                      ].filter((x) => {
+                        const b = bikes.find((y) => y.id === x.bikeId);
+                        return matches(
+                          searchMessages,
+                          b?.customer,
+                          b?.model,
+                          x.date,
+                          x.title,
+                          x.kind
+                        );
+                      }),
+                      'messages',
+                      (x) => x.date,
+                      (x) => bikes.find((b) => b.id === x.bikeId)?.customer || '',
+                      (x) => x.status
+                    )"
+                    :key="w.id"
+                  >
+                    <td>
+                      <button
+                        class="customer-link"
+                        @click="
+                          openCustomerDetail(bikes.find((b) => b.id === w.bikeId)?.customer || '')
+                        "
+                      >
+                        {{ bikes.find((b) => b.id === w.bikeId)?.customer }}
+                      </button>
+                    </td>
+                    <td>{{ bikes.find((b) => b.id === w.bikeId)?.model }}</td>
+                    <td>{{ w.kind }}</td>
+                    <td>{{ w.title }}</td>
+                    <td>{{ w.date }}</td>
+                    <td>
+                      <button
+                        class="outline small"
+                        @click="
+                          mailTarget = bikes.find((b) => b.id === w.bikeId)?.customer || '';
+                          mailKind = w.kind + 'のご案内';
+                          showMail = true;
+                        "
+                      >
+                        内容確認
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section></template
+        >
 
-<template v-else><div class="page-heading"><div><p class="eyebrow">CUSTOMER PORTAL</p><h1>マイページ</h1><p class="sub">ご登録のロードバイクと年間プランをご確認いただけます。</p></div><span class="customer-welcome">山田 太郎 様</span></div><section class="panel"><div class="panel-head"><div><h2>ご契約中のロードバイク</h2><p>山田 太郎 様 · {{customerBikes.length}}台をご契約中</p></div><input class="search" v-model="searchMyPage" placeholder="自転車・プランで検索"/><span class="status success">契約中</span></div><div v-for="b in customerBikes.filter(x=>matches(searchMyPage,x.model,x.maker,x.model,planFor(x).name))" :key="b.id" class="customer-bike"><div class="bike-symbol">🚴</div><div class="equipment-details"><b>{{b.maker}} {{b.model}}</b><small>{{planFor(b).name}} · 契約期間 {{b.contractStart}}〜{{b.contractEnd}}</small><small>オーバーホール残 {{remaining(b,'overhaul')}}回</small><small>メンテナンス残 {{remaining(b,'maintenance')}} / {{planFor(b).maintenanceCount}}回</small><small>点検サポート残 {{remaining(b,'inspection')}} / {{planFor(b).inspectionCount}}回</small></div></div></section><section class="panel"><div class="panel-head"><div><h2>メンテナンス・点検予定</h2><p>目標イベントに合わせたサポート予定</p></div></div><div class="table-wrap"><table><thead><tr><th>対象自転車</th><th>作業区分</th><th>内容</th><th><button class="sort-header" @click="toggleListSort('mypage','date')">開始日 {{sortLabel('mypage','date')}} / 完了日</button></th><th><button class="sort-header" @click="toggleListSort('mypage','status')">状態 {{sortLabel('mypage','status')}}</button></th></tr></thead><tbody><tr v-for="w in sortByDate([...maintenance.filter(x=>customerBikes.some(b=>b.id===x.bikeId)),...eventChecks.filter(x=>customerBikes.some(b=>b.id===x.bikeId)).map(x=>({...x,date:x.inspectionDate,title:x.name,kind:'点検サポート'}))], 'mypage', x=>x.date, x=>bikes.find(b=>b.id===x.bikeId)?.customer||'', x=>x.status)" :key="w.id"><td><b>{{bikes.find(b=>b.id===w.bikeId)?.maker}} {{bikes.find(b=>b.id===w.bikeId)?.model}}</b></td><td>{{'kind' in w?w.kind:'メンテナンス'}}</td><td>{{w.title}}</td><td>{{w.date}}〜{{w.endDate||'未定'}}</td><td>{{w.status}}</td></tr></tbody></table></div></section></template>
-</div></main></div>
-<div v-if="showBikeDetail" class="modal-backdrop" @click.self="showBikeDetail=false"><div class="modal modal-wide bike-detail-modal"><div class="modal-head"><div><p class="eyebrow">CONTRACT DETAILS</p><h2>契約詳細</h2><p class="sub">選択した自転車の契約内容とサービス残回数</p></div><button class="close" @click="showBikeDetail=false">×</button></div><div class="detail-grid"><div><label>顧客</label><b>{{selectedBike.customer}}</b></div><div><label>自転車</label><b>{{selectedBike.maker}} {{selectedBike.model}}</b></div><div><label>プラン</label><b>{{planFor(selectedBike).name}}</b></div><div><label>契約期間</label><b>{{selectedBike.contractStart}}〜{{selectedBike.contractEnd}}</b></div><div><label>担当店舗・受付</label><b>{{shops.find(x=>x.id===selectedBike.shopId)?.name}} / {{selectedBike.receptionist}}</b></div><div><label>オーバーホール残</label><b class="remaining large">{{remaining(selectedBike,'overhaul')}} / {{planFor(selectedBike).overhaulCount}}回</b></div><div><label>メンテナンス残</label><b class="remaining large">{{remaining(selectedBike,'maintenance')}} / {{planFor(selectedBike).maintenanceCount}}回</b></div><div><label>点検サポート残</label><b class="remaining large">{{remaining(selectedBike,'inspection')}} / {{planFor(selectedBike).inspectionCount}}回</b></div><div><label>オーバーホール完了日</label><b>{{selectedBike.overhaulCompleted||'未実施'}}</b></div><div><label>車体メーカー・モデル</label><b>{{selectedBike.maker}} {{selectedBike.model}}</b></div><div><label>年式</label><b>{{selectedBike.year}}年</b></div><div><label>シリアル番号</label><b>{{selectedBike.serial||'未登録'}}</b></div></div><div class="modal-actions"><button class="outline" @click="showBikeDetail=false">閉じる</button></div></div></div>
-<div v-if="showCustomerDetail" class="modal-backdrop" @click.self="showCustomerDetail=false"><div class="modal modal-wide customer-detail-modal"><div class="modal-head"><div><p class="eyebrow">CUSTOMER PROFILE</p><h2>{{selectedCustomerName}} 様の顧客情報</h2><p class="sub">管理画面から顧客マイページと同等の契約・予定・履歴を確認できます。</p></div><button class="close" @click="showCustomerDetail=false">×</button></div><section class="customer-profile-summary"><div><label>顧客名</label><b>{{selectedCustomerName}}</b></div><div><label>メールアドレス</label><b>{{selectedCustomer?.email||'未登録'}}</b></div><div><label>契約自転車</label><b>{{selectedCustomerBikes.length}}台</b></div></section><section class="customer-profile-section"><div class="panel-head"><div><h3>契約中の自転車・年間プラン</h3><p>自転車ごとの契約期間とサービス残回数</p></div></div><div v-for="b in selectedCustomerBikes" :key="b.id" class="customer-profile-bike"><div class="customer-profile-bike-title"><b>{{b.maker}} {{b.model}}</b><span class="status success">契約中</span></div><div class="customer-bike-actions customer-bike-register-actions"><button class="primary small" :disabled="scheduleRemaining(b,'overhaul')<=0" @click="openCustomerBikeRegistration('overhaul',b)">＋ オーバーホール登録</button><button class="primary small" :disabled="scheduleRemaining(b,'maintenance')<=0" @click="openCustomerBikeRegistration('maintenance',b)">＋ メンテナンス登録</button><button class="primary small" :disabled="scheduleRemaining(b,'inspection')<=0" @click="openCustomerBikeRegistration('event',b)">＋ 点検登録</button></div><div class="customer-bike-actions customer-bike-manage-actions"><button class="outline small" @click="openCustomerBikePage('overhaul',b.id)">オーバーホール管理画面</button><button class="outline small" @click="openCustomerBikePage('maintenance',b.id)">メンテナンス管理画面</button><button class="outline small" @click="openCustomerBikePage('events',b.id)">点検管理画面</button><button class="outline small" @click="openCustomerBikePage('history',b.id)">作業履歴</button></div><div class="detail-grid"><div><label>プラン</label><b>{{planFor(b).name}}</b></div><div><label>契約期間</label><b>{{b.contractStart}}〜{{b.contractEnd}}</b></div><div><label>担当店舗・受付</label><b>{{shops.find(x=>x.id===b.shopId)?.name}} / {{b.receptionist}}</b></div><div><label>オーバーホール残</label><b class="remaining">{{remaining(b,'overhaul')}} / {{planFor(b).overhaulCount}}回</b></div><div><label>メンテナンス残</label><b class="remaining">{{remaining(b,'maintenance')}} / {{planFor(b).maintenanceCount}}回</b></div><div><label>点検サポート残</label><b class="remaining">{{remaining(b,'inspection')}} / {{planFor(b).inspectionCount}}回</b></div></div></div><div v-if="!selectedCustomerBikes.length" class="empty-state">契約中の自転車はありません。</div></section><section class="customer-profile-section"><div class="panel-head"><div><h3>メンテナンス・点検予定</h3><p>対象自転車・作業期間・状態</p></div></div><div class="table-wrap"><table><thead><tr><th>対象自転車</th><th>作業区分</th><th>内容</th><th>開始日〜完了日</th><th>状態</th></tr></thead><tbody><tr v-for="w in selectedCustomerWorks" :key="w.kind+'-'+w.id"><td>{{selectedCustomerBikes.find(b=>b.id===w.bikeId)?.model}}</td><td>{{w.kind}}</td><td>{{w.title}}</td><td>{{w.date}}〜{{w.endDate||'未定'}}</td><td><span class="status info">{{w.status}}</span></td></tr><tr v-if="!selectedCustomerWorks.length"><td colspan="5" class="empty-state">予定は登録されていません。</td></tr></tbody></table></div></section><section class="customer-profile-section"><div class="panel-head"><div><h3>作業履歴</h3><p>完了した作業と記録メモ</p></div></div><div class="table-wrap"><table><thead><tr><th>実施日</th><th>対象自転車</th><th>作業区分</th><th>作業内容</th><th>メモ</th></tr></thead><tbody><tr v-for="h in selectedCustomerHistories" :key="h.id"><td>{{h.date}}</td><td>{{selectedCustomerBikes.find(b=>b.id===h.bikeId)?.model}}</td><td>{{h.category}}</td><td>{{h.title}}</td><td>{{h.memo||'—'}}</td></tr><tr v-if="!selectedCustomerHistories.length"><td colspan="5" class="empty-state">作業履歴はありません。</td></tr></tbody></table></div></section><div class="modal-actions"><button class="outline" @click="showCustomerDetail=false">閉じる</button></div></div></div>
-<div v-if="showContractModal" class="modal-backdrop" @click.self="showContractModal=false"><div class="modal modal-wide"><div class="modal-head"><div><p class="eyebrow">NEW ANNUAL CONTRACT</p><h2>年間契約を登録</h2></div><button class="close" @click="showContractModal=false">×</button></div><div class="detail-grid"><div><label>顧客</label><input v-model="contractForm.customer" list="customer-options" placeholder="顧客名を入力して検索"/></div><div><label>メーカー</label><input v-model="contractForm.maker"/></div><div><label>モデル</label><input v-model="contractForm.model"/></div><div><label>年式</label><input v-model.number="contractForm.year" type="number"/></div><div><label>車体番号</label><input v-model="contractForm.serial"/></div><div><label>契約プラン</label><select v-model.number="contractForm.planId"><option v-for="p in plans" :key="p.id" :value="p.id">{{p.name}}（OH {{p.overhaulCount}} / メンテ {{p.maintenanceCount}} / 点検 {{p.inspectionCount}}）</option></select></div><div><label>契約受付日</label><input v-model="contractForm.applicationDate" type="date"/></div><div><label>契約開始日</label><input v-model="contractForm.start" type="date"/></div><div><label>担当店舗</label><select v-model.number="contractForm.shopId"><option v-for="shop in shops" :key="shop.id" :value="shop.id">{{shop.name}}</option></select></div><div><label>受付担当者</label><select v-model="contractForm.receptionist"><option v-for="person in staff.filter(x=>x.shopId===contractForm.shopId)" :key="person.id">{{person.name}}</option></select></div></div><div class="modal-note">契約受付期限は契約開始年の12月31日。契約期間は12月1日〜翌年11月30日です。</div><div class="modal-actions"><button class="outline" @click="showContractModal=false">キャンセル</button><button class="primary" @click="addContract">契約を登録してOH予定へ進む</button></div></div></div>
-<div v-if="showShopModal" class="modal-backdrop" @click.self="showShopModal=false"><div class="modal"><div class="modal-head"><div><p class="eyebrow">NEW STORE</p><h2>店舗を登録</h2></div><button class="close" @click="showShopModal=false">×</button></div><label>店舗名</label><input v-model="newShopName" placeholder="例：大阪店"/><label>住所</label><input v-model="newShopAddress" placeholder="住所"/><label>電話番号</label><input v-model="newShopPhone" placeholder="電話番号"/><div class="modal-actions"><button class="outline" @click="showShopModal=false">キャンセル</button><button class="primary" @click="addShop">店舗を登録</button></div></div></div>
-<div v-if="showStaffModal" class="modal-backdrop" @click.self="showStaffModal=false"><div class="modal"><div class="modal-head"><div><p class="eyebrow">NEW STAFF</p><h2>受付担当者を登録</h2></div><button class="close" @click="showStaffModal=false">×</button></div><label>所属店舗</label><select v-model.number="newStaffShop"><option v-for="shop in shops" :key="shop.id" :value="shop.id">{{shop.name}}</option></select><label>担当者名</label><input v-model="newStaffName" placeholder="担当者名"/><div class="modal-actions"><button class="outline" @click="showStaffModal=false">キャンセル</button><button class="primary" @click="addStaff">担当者を登録</button></div></div></div>
-<div v-if="showPlanModal" class="modal-backdrop" @click.self="showPlanModal=false"><div class="modal"><div class="modal-head"><div><p class="eyebrow">NEW PLAN</p><h2>プランを追加</h2></div><button class="close" @click="showPlanModal=false">×</button></div><label>プラン名</label><input v-model="newPlan.name" placeholder="例：競技者向けプラン"/><label>オーバーホール回数</label><input v-model.number="newPlan.overhaulCount" type="number" min="0" step="1"/><label>メンテナンス回数</label><input v-model.number="newPlan.maintenanceCount" type="number" min="0" step="1"/><label>点検サポート回数</label><input v-model.number="newPlan.inspectionCount" type="number" min="0" step="1"/><div class="modal-note">回数はそれぞれ独立して設定します。</div><div class="modal-actions"><button class="outline" @click="showPlanModal=false">キャンセル</button><button class="primary" @click="addPlan">プランを追加</button></div></div></div>
-<div v-if="showOverhaulModal" class="modal-backdrop" @click.self="showOverhaulModal=false"><div class="modal modal-wide"><div class="modal-head"><div><p class="eyebrow">NEW OVERHAUL</p><h2>オーバーホールを登録</h2></div><button class="close" @click="showOverhaulModal=false">×</button></div><div class="detail-grid"><div><label>顧客・自転車</label><input v-model="overhaulBikeSearch" @change="setBikeFromLabel(overhaulBikeSearch, 'overhaul')" list="bike-options" placeholder="顧客名・自転車名を入力して検索"/></div><div><label>受付日</label><input v-model="newOverhaulReceptionDate" type="date"/></div><div><label>作業開始予定日</label><input v-model="newOverhaulDate" type="date"/></div><div><label>作業完了予定日</label><input v-model="newOverhaulEndDate" type="date"/></div><div><label>作業名</label><input v-model="newOverhaulTitle"/></div><div><label>作業内容</label><input v-model="newOverhaulDetail"/></div></div><div class="modal-note">受付期限は契約開始年の12月31日。実施期間は契約開始年11月〜翌年2月末です。新規登録可能：{{bikes.find(b=>b.id===newOverhaulBike)?scheduleRemaining(bikes.find(b=>b.id===newOverhaulBike)!,'overhaul'):0}} / 契約枠 {{bikes.find(b=>b.id===newOverhaulBike)?planFor(bikes.find(b=>b.id===newOverhaulBike)!).overhaulCount:0}}回（予定・完了を含む）</div><div class="modal-actions"><button class="outline" @click="showOverhaulModal=false">キャンセル</button><button class="primary" :disabled="!bikes.find(b=>b.id===newOverhaulBike)||scheduleRemaining(bikes.find(b=>b.id===newOverhaulBike)!,'overhaul')<=0" @click="addOverhaul">オーバーホールを登録</button></div></div></div>
-<div v-if="showMaintenanceModal" class="modal-backdrop" @click.self="showMaintenanceModal=false"><div class="modal modal-wide"><div class="modal-head"><div><p class="eyebrow">NEW MAINTENANCE</p><h2>メンテナンス計画を追加</h2></div><button class="close" @click="showMaintenanceModal=false">×</button></div><div class="detail-grid"><div><label>顧客・自転車</label><input v-model="maintenanceBikeSearch" @change="setBikeFromLabel(maintenanceBikeSearch, 'maintenance')" list="bike-options" placeholder="顧客名・自転車名を入力して検索"/></div><div><label>作業開始予定日</label><input v-model="newWorkDate" type="date"/></div><div><label>作業完了予定日</label><input v-model="newWorkEndDate" type="date"/></div><div><label>計画名</label><input v-model="newWorkTitle"/></div><div><label>作業内容</label><input v-model="newWorkDetail"/></div></div><div class="modal-note">新規登録可能：{{bikes.find(b=>b.id===newWorkBike)?scheduleRemaining(bikes.find(b=>b.id===newWorkBike)!,'maintenance'):0}} / 契約枠 {{bikes.find(b=>b.id===newWorkBike)?planFor(bikes.find(b=>b.id===newWorkBike)!).maintenanceCount:0}}回（予定・完了を含む）</div><div class="modal-actions"><button class="outline" @click="showMaintenanceModal=false">キャンセル</button><button class="primary" :disabled="!bikes.find(b=>b.id===newWorkBike)||scheduleRemaining(bikes.find(b=>b.id===newWorkBike)!,'maintenance')<=0" @click="addMaintenance">計画を登録</button></div></div></div>
-<div v-if="showEventModal" class="modal-backdrop" @click.self="showEventModal=false"><div class="modal modal-wide"><div class="modal-head"><div><p class="eyebrow">NEW EVENT & INSPECTION</p><h2>イベント・点検を登録</h2></div><button class="close" @click="showEventModal=false">×</button></div><div class="detail-grid"><div><label>顧客・自転車</label><input v-model="eventBikeSearch" @change="setBikeFromLabel(eventBikeSearch, 'event')" list="bike-options" placeholder="顧客名・自転車名を入力して検索"/></div><div><label>イベント名</label><input v-model="newEventName" placeholder="例：年間メインイベント"/></div><div><label>イベント開催日</label><input v-model="newEventDate" type="date"/></div><div><label>点検開始予定日</label><input v-model="newInspectionDate" type="date"/></div><div><label>点検完了予定日</label><input v-model="newInspectionEndDate" type="date"/></div></div><div class="modal-note">新規登録可能：{{bikes.find(b=>b.id===newEventBike)?scheduleRemaining(bikes.find(b=>b.id===newEventBike)!,'inspection'):0}} / 契約枠 {{bikes.find(b=>b.id===newEventBike)?planFor(bikes.find(b=>b.id===newEventBike)!).inspectionCount:0}}回（予定・完了を含む）</div><div class="modal-actions"><button class="outline" @click="showEventModal=false">キャンセル</button><button class="primary" :disabled="!bikes.find(b=>b.id===newEventBike)||scheduleRemaining(bikes.find(b=>b.id===newEventBike)!,'inspection')<=0" @click="addEvent">イベント・点検を登録</button></div></div></div>
-<div v-if="completionTarget" class="modal-backdrop" @click.self="completionTarget=null"><div class="modal"><div class="modal-head"><div><p class="eyebrow">WORK COMPLETION</p><h2>作業完了・メモ登録</h2></div><button class="close" @click="completionTarget=null">×</button></div><p class="sub">作業内容や交換部品、調整箇所、次回確認事項などを記録できます。</p><label>作業完了日</label><input v-model="completionDate" type="date"/><label>作業時のメモ</label><textarea v-model="completionMemo" rows="6" placeholder="例：チェーン・スプロケットを洗浄。リアブレーキパッド交換。変速調整済み。次回はタイヤ摩耗を確認。"></textarea><div class="modal-note">メモは作業履歴に保存され、後から「メンテナンス履歴」画面で確認できます。</div><div class="modal-actions"><button class="outline" @click="completionTarget=null">キャンセル</button><button class="primary" @click="confirmCompletion">作業完了として保存</button></div></div></div>
-<div v-if="editTarget" class="modal-backdrop" @click.self="editTarget=null"><div class="modal"><div class="modal-head"><div><p class="eyebrow">EDIT SCHEDULE</p><h2>予定の変更</h2></div><button class="close" @click="editTarget=null">×</button></div><label>作業開始日</label><input v-model="editDate" type="date"/><label>作業完了予定日</label><input v-model="editEndDate" type="date"/><label>予定名・イベント名</label><input v-model="editTitle"/><label>内容・メモ</label><input v-model="editDetail"/><label>受付担当者</label><select v-model="editReceptionist"><option v-for="person in staff" :key="person.id">{{person.name}}</option></select><div class="modal-note">開始日・完了予定日を変更できます。完了日は開始日以降にしてください。契約回数は作業完了時のみ消費します。</div><div class="modal-actions"><button class="outline" @click="editTarget=null">キャンセル</button><button class="primary" @click="saveEdit">変更を保存</button></div></div></div>
-<div v-if="showMail" class="modal-backdrop" @click.self="showMail=false"><div class="modal"><div class="modal-head"><div><p class="eyebrow">EMAIL PREVIEW</p><h2>メンテナンス案内メール</h2></div><button class="close" @click="showMail=false">×</button></div><label>送信先</label><select v-model="mailTarget"><option v-for="c in customers" :key="c.name">{{c.name}}</option></select><label>件名</label><input v-model="mailKind"/><label>本文</label><div class="mail-body">{{mailTarget}} 様<br><br>いつもご利用いただきありがとうございます。<br>メンテナンス・点検予定についてご案内いたします。<br><br>ご希望の日程がございましたら店舗までご連絡ください。<br><br>今後ともよろしくお願いいたします。</div><div class="modal-note">※ モックのため、実際のメール送信は行われません。</div><div class="modal-actions"><button class="outline" @click="showMail=false">閉じる</button><button class="primary" @click="sendMail">送信（デモ）</button></div></div></div>
-<datalist id="customer-options"><option v-for="c in customers" :key="c.name" :value="c.name"/></datalist><datalist id="bike-options"><option v-for="b in bikes" :key="b.id" :value="bikeLabel(b.id)"/></datalist>
+        <template v-else
+          ><div class="page-heading">
+            <div>
+              <p class="eyebrow">CUSTOMER PORTAL</p>
+              <h1>マイページ</h1>
+              <p class="sub">ご登録のロードバイクと年間プランをご確認いただけます。</p>
+            </div>
+            <span class="customer-welcome">山田 太郎 様</span>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>ご契約中のロードバイク</h2>
+                <p>山田 太郎 様 · {{ customerBikes.length }}台をご契約中</p>
+              </div>
+              <input
+                class="search"
+                v-model="searchMyPage"
+                placeholder="自転車・プランで検索"
+              /><span class="status success">契約中</span>
+            </div>
+            <div
+              v-for="b in customerBikes.filter((x) =>
+                matches(searchMyPage, x.model, x.maker, x.model, planFor(x).name)
+              )"
+              :key="b.id"
+              class="customer-bike"
+            >
+              <div class="bike-symbol">🚴</div>
+              <div class="equipment-details">
+                <b>{{ b.maker }} {{ b.model }}</b
+                ><small
+                  >{{ planFor(b).name }} · 契約期間 {{ b.contractStart }}〜{{
+                    b.contractEnd
+                  }}</small
+                ><small>オーバーホール残 {{ remaining(b, 'overhaul') }}回</small
+                ><small
+                  >メンテナンス残 {{ remaining(b, 'maintenance') }} /
+                  {{ planFor(b).maintenanceCount }}回</small
+                ><small
+                  >点検サポート残 {{ remaining(b, 'inspection') }} /
+                  {{ planFor(b).inspectionCount }}回</small
+                >
+              </div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>メンテナンス・点検予定</h2>
+                <p>目標イベントに合わせたサポート予定</p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>対象自転車</th>
+                    <th>作業区分</th>
+                    <th>内容</th>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('mypage', 'date')">
+                        開始日 {{ sortLabel('mypage', 'date') }} / 完了日
+                      </button>
+                    </th>
+                    <th>
+                      <button class="sort-header" @click="toggleListSort('mypage', 'status')">
+                        状態 {{ sortLabel('mypage', 'status') }}
+                      </button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="w in sortByDate(
+                      [
+                        ...maintenance.filter((x) => customerBikes.some((b) => b.id === x.bikeId)),
+                        ...eventChecks
+                          .filter((x) => customerBikes.some((b) => b.id === x.bikeId))
+                          .map((x) => ({
+                            ...x,
+                            date: x.inspectionDate,
+                            title: x.name,
+                            kind: '点検サポート',
+                          })),
+                      ],
+                      'mypage',
+                      (x) => x.date,
+                      (x) => bikes.find((b) => b.id === x.bikeId)?.customer || '',
+                      (x) => x.status
+                    )"
+                    :key="w.id"
+                  >
+                    <td>
+                      <b
+                        >{{ bikes.find((b) => b.id === w.bikeId)?.maker }}
+                        {{ bikes.find((b) => b.id === w.bikeId)?.model }}</b
+                      >
+                    </td>
+                    <td>{{ 'kind' in w ? w.kind : 'メンテナンス' }}</td>
+                    <td>{{ w.title }}</td>
+                    <td>{{ w.date }}〜{{ w.endDate || '未定' }}</td>
+                    <td>{{ w.status }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section></template
+        >
+      </div>
+    </main>
+  </div>
+  <div v-if="showBikeDetail" class="modal-backdrop" @click.self="showBikeDetail = false">
+    <div class="modal modal-wide bike-detail-modal">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">CONTRACT DETAILS</p>
+          <h2>契約詳細</h2>
+          <p class="sub">選択した自転車の契約内容とサービス残回数</p>
+        </div>
+        <button class="close" @click="showBikeDetail = false">×</button>
+      </div>
+      <div class="detail-grid">
+        <div>
+          <label>顧客</label><b>{{ selectedBike.customer }}</b>
+        </div>
+        <div>
+          <label>自転車</label><b>{{ selectedBike.maker }} {{ selectedBike.model }}</b>
+        </div>
+        <div>
+          <label>プラン</label><b>{{ planFor(selectedBike).name }}</b>
+        </div>
+        <div>
+          <label>契約期間</label
+          ><b>{{ selectedBike.contractStart }}〜{{ selectedBike.contractEnd }}</b>
+        </div>
+        <div>
+          <label>担当店舗・受付</label
+          ><b
+            >{{ shops.find((x) => x.id === selectedBike.shopId)?.name }} /
+            {{ selectedBike.receptionist }}</b
+          >
+        </div>
+        <div>
+          <label>オーバーホール残</label
+          ><b class="remaining large"
+            >{{ remaining(selectedBike, 'overhaul') }} /
+            {{ planFor(selectedBike).overhaulCount }}回</b
+          >
+        </div>
+        <div>
+          <label>メンテナンス残</label
+          ><b class="remaining large"
+            >{{ remaining(selectedBike, 'maintenance') }} /
+            {{ planFor(selectedBike).maintenanceCount }}回</b
+          >
+        </div>
+        <div>
+          <label>点検サポート残</label
+          ><b class="remaining large"
+            >{{ remaining(selectedBike, 'inspection') }} /
+            {{ planFor(selectedBike).inspectionCount }}回</b
+          >
+        </div>
+        <div>
+          <label>オーバーホール完了日</label><b>{{ selectedBike.overhaulCompleted || '未実施' }}</b>
+        </div>
+        <div>
+          <label>車体メーカー・モデル</label
+          ><b>{{ selectedBike.maker }} {{ selectedBike.model }}</b>
+        </div>
+        <div>
+          <label>年式</label><b>{{ selectedBike.year }}年</b>
+        </div>
+        <div>
+          <label>シリアル番号</label><b>{{ selectedBike.serial || '未登録' }}</b>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="outline" @click="showBikeDetail = false">閉じる</button>
+      </div>
+    </div>
+  </div>
+  <div v-if="showCustomerDetail" class="modal-backdrop" @click.self="showCustomerDetail = false">
+    <div class="modal modal-wide customer-detail-modal">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">CUSTOMER PROFILE</p>
+          <h2>{{ selectedCustomerName }} 様の顧客情報</h2>
+          <p class="sub">管理画面から顧客マイページと同等の契約・予定・履歴を確認できます。</p>
+        </div>
+        <button class="close" @click="showCustomerDetail = false">×</button>
+      </div>
+      <section class="customer-profile-summary">
+        <div>
+          <label>顧客名</label><b>{{ selectedCustomerName }}</b>
+        </div>
+        <div>
+          <label>メールアドレス</label><b>{{ selectedCustomer?.email || '未登録' }}</b>
+        </div>
+        <div>
+          <label>契約自転車</label><b>{{ selectedCustomerBikes.length }}台</b>
+        </div>
+      </section>
+      <section class="customer-profile-section">
+        <div class="panel-head">
+          <div>
+            <h3>契約中の自転車・年間プラン</h3>
+            <p>自転車ごとの契約期間とサービス残回数</p>
+          </div>
+        </div>
+        <div v-for="b in selectedCustomerBikes" :key="b.id" class="customer-profile-bike">
+          <div class="customer-profile-bike-title">
+            <b>{{ b.maker }} {{ b.model }}</b
+            ><span class="status success">契約中</span>
+          </div>
+          <div class="customer-bike-actions customer-bike-register-actions">
+            <button
+              class="primary small"
+              :disabled="scheduleRemaining(b, 'overhaul') <= 0"
+              @click="openCustomerBikeRegistration('overhaul', b)"
+            >
+              ＋ オーバーホール登録</button
+            ><button
+              class="primary small"
+              :disabled="scheduleRemaining(b, 'maintenance') <= 0"
+              @click="openCustomerBikeRegistration('maintenance', b)"
+            >
+              ＋ メンテナンス登録</button
+            ><button
+              class="primary small"
+              :disabled="scheduleRemaining(b, 'inspection') <= 0"
+              @click="openCustomerBikeRegistration('event', b)"
+            >
+              ＋ 点検登録
+            </button>
+          </div>
+          <div class="customer-bike-actions customer-bike-manage-actions">
+            <button class="outline small" @click="openCustomerBikePage('overhaul', b.id)">
+              オーバーホール管理画面</button
+            ><button class="outline small" @click="openCustomerBikePage('maintenance', b.id)">
+              メンテナンス管理画面</button
+            ><button class="outline small" @click="openCustomerBikePage('events', b.id)">
+              点検管理画面</button
+            ><button class="outline small" @click="openCustomerBikePage('history', b.id)">
+              作業履歴
+            </button>
+          </div>
+          <div class="detail-grid">
+            <div>
+              <label>プラン</label><b>{{ planFor(b).name }}</b>
+            </div>
+            <div>
+              <label>契約期間</label><b>{{ b.contractStart }}〜{{ b.contractEnd }}</b>
+            </div>
+            <div>
+              <label>担当店舗・受付</label
+              ><b>{{ shops.find((x) => x.id === b.shopId)?.name }} / {{ b.receptionist }}</b>
+            </div>
+            <div>
+              <label>オーバーホール残</label
+              ><b class="remaining"
+                >{{ remaining(b, 'overhaul') }} / {{ planFor(b).overhaulCount }}回</b
+              >
+            </div>
+            <div>
+              <label>メンテナンス残</label
+              ><b class="remaining"
+                >{{ remaining(b, 'maintenance') }} / {{ planFor(b).maintenanceCount }}回</b
+              >
+            </div>
+            <div>
+              <label>点検サポート残</label
+              ><b class="remaining"
+                >{{ remaining(b, 'inspection') }} / {{ planFor(b).inspectionCount }}回</b
+              >
+            </div>
+          </div>
+        </div>
+        <div v-if="!selectedCustomerBikes.length" class="empty-state">
+          契約中の自転車はありません。
+        </div>
+      </section>
+      <section class="customer-profile-section">
+        <div class="panel-head">
+          <div>
+            <h3>メンテナンス・点検予定</h3>
+            <p>対象自転車・作業期間・状態</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>対象自転車</th>
+                <th>作業区分</th>
+                <th>内容</th>
+                <th>開始日〜完了日</th>
+                <th>状態</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="w in selectedCustomerWorks" :key="w.kind + '-' + w.id">
+                <td>{{ selectedCustomerBikes.find((b) => b.id === w.bikeId)?.model }}</td>
+                <td>{{ w.kind }}</td>
+                <td>{{ w.title }}</td>
+                <td>{{ w.date }}〜{{ w.endDate || '未定' }}</td>
+                <td>
+                  <span class="status info">{{ w.status }}</span>
+                </td>
+              </tr>
+              <tr v-if="!selectedCustomerWorks.length">
+                <td colspan="5" class="empty-state">予定は登録されていません。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="customer-profile-section">
+        <div class="panel-head">
+          <div>
+            <h3>作業履歴</h3>
+            <p>完了した作業と記録メモ</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>実施日</th>
+                <th>対象自転車</th>
+                <th>作業区分</th>
+                <th>作業内容</th>
+                <th>メモ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="h in selectedCustomerHistories" :key="h.id">
+                <td>{{ h.date }}</td>
+                <td>{{ selectedCustomerBikes.find((b) => b.id === h.bikeId)?.model }}</td>
+                <td>{{ h.category }}</td>
+                <td>{{ h.title }}</td>
+                <td>{{ h.memo || '—' }}</td>
+              </tr>
+              <tr v-if="!selectedCustomerHistories.length">
+                <td colspan="5" class="empty-state">作業履歴はありません。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <div class="modal-actions">
+        <button class="outline" @click="showCustomerDetail = false">閉じる</button>
+      </div>
+    </div>
+  </div>
+  <div v-if="showContractModal" class="modal-backdrop" @click.self="showContractModal = false">
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">NEW ANNUAL CONTRACT</p>
+          <h2>年間契約を登録</h2>
+        </div>
+        <button class="close" @click="showContractModal = false">×</button>
+      </div>
+      <div class="detail-grid">
+        <div>
+          <label>顧客</label
+          ><input
+            v-model="contractForm.customer"
+            list="customer-options"
+            placeholder="顧客名を入力して検索"
+          />
+        </div>
+        <div><label>メーカー</label><input v-model="contractForm.maker" /></div>
+        <div><label>モデル</label><input v-model="contractForm.model" /></div>
+        <div><label>年式</label><input v-model.number="contractForm.year" type="number" /></div>
+        <div><label>車体番号</label><input v-model="contractForm.serial" /></div>
+        <div>
+          <label>契約プラン</label
+          ><select v-model.number="contractForm.planId">
+            <option v-for="p in plans" :key="p.id" :value="p.id">
+              {{ p.name }}（OH {{ p.overhaulCount }} / メンテ {{ p.maintenanceCount }} / 点検
+              {{ p.inspectionCount }}）
+            </option>
+          </select>
+        </div>
+        <div>
+          <label>契約受付日</label><input v-model="contractForm.applicationDate" type="date" />
+        </div>
+        <div><label>契約開始日</label><input v-model="contractForm.start" type="date" /></div>
+        <div>
+          <label>担当店舗</label
+          ><select v-model.number="contractForm.shopId">
+            <option v-for="shop in shops" :key="shop.id" :value="shop.id">{{ shop.name }}</option>
+          </select>
+        </div>
+        <div>
+          <label>受付担当者</label
+          ><select v-model="contractForm.receptionist">
+            <option
+              v-for="person in staff.filter((x) => x.shopId === contractForm.shopId)"
+              :key="person.id"
+            >
+              {{ person.name }}
+            </option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-note">
+        契約受付期限は契約開始年の12月31日。契約期間は12月1日〜翌年11月30日です。
+      </div>
+      <div class="modal-actions">
+        <button class="outline" @click="showContractModal = false">キャンセル</button
+        ><button class="primary" @click="addContract">契約を登録してOH予定へ進む</button>
+      </div>
+    </div>
+  </div>
+  <div v-if="showShopModal" class="modal-backdrop" @click.self="showShopModal = false">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">NEW STORE</p>
+          <h2>店舗を登録</h2>
+        </div>
+        <button class="close" @click="showShopModal = false">×</button>
+      </div>
+      <label>店舗名</label><input v-model="newShopName" placeholder="例：大阪店" /><label
+        >住所</label
+      ><input v-model="newShopAddress" placeholder="住所" /><label>電話番号</label
+      ><input v-model="newShopPhone" placeholder="電話番号" />
+      <div class="modal-actions">
+        <button class="outline" @click="showShopModal = false">キャンセル</button
+        ><button class="primary" @click="addShop">店舗を登録</button>
+      </div>
+    </div>
+  </div>
+  <div v-if="showStaffModal" class="modal-backdrop" @click.self="showStaffModal = false">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">NEW STAFF</p>
+          <h2>受付担当者を登録</h2>
+        </div>
+        <button class="close" @click="showStaffModal = false">×</button>
+      </div>
+      <label>所属店舗</label
+      ><select v-model.number="newStaffShop">
+        <option v-for="shop in shops" :key="shop.id" :value="shop.id">
+          {{ shop.name }}
+        </option></select
+      ><label>担当者名</label><input v-model="newStaffName" placeholder="担当者名" />
+      <div class="modal-actions">
+        <button class="outline" @click="showStaffModal = false">キャンセル</button
+        ><button class="primary" @click="addStaff">担当者を登録</button>
+      </div>
+    </div>
+  </div>
+  <div v-if="showPlanModal" class="modal-backdrop" @click.self="showPlanModal = false">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">NEW PLAN</p>
+          <h2>プランを追加</h2>
+        </div>
+        <button class="close" @click="showPlanModal = false">×</button>
+      </div>
+      <label>プラン名</label
+      ><input v-model="newPlan.name" placeholder="例：競技者向けプラン" /><label
+        >オーバーホール回数</label
+      ><input v-model.number="newPlan.overhaulCount" type="number" min="0" step="1" /><label
+        >メンテナンス回数</label
+      ><input v-model.number="newPlan.maintenanceCount" type="number" min="0" step="1" /><label
+        >点検サポート回数</label
+      ><input v-model.number="newPlan.inspectionCount" type="number" min="0" step="1" />
+      <div class="modal-note">回数はそれぞれ独立して設定します。</div>
+      <div class="modal-actions">
+        <button class="outline" @click="showPlanModal = false">キャンセル</button
+        ><button class="primary" @click="addPlan">プランを追加</button>
+      </div>
+    </div>
+  </div>
+  <div v-if="showOverhaulModal" class="modal-backdrop" @click.self="showOverhaulModal = false">
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">NEW OVERHAUL</p>
+          <h2>オーバーホールを登録</h2>
+        </div>
+        <button class="close" @click="showOverhaulModal = false">×</button>
+      </div>
+      <div class="detail-grid">
+        <div>
+          <label>顧客・自転車</label
+          ><input
+            v-model="overhaulBikeSearch"
+            @change="setBikeFromLabel(overhaulBikeSearch, 'overhaul')"
+            list="bike-options"
+            placeholder="顧客名・自転車名を入力して検索"
+          />
+        </div>
+        <div><label>受付日</label><input v-model="newOverhaulReceptionDate" type="date" /></div>
+        <div><label>作業開始予定日</label><input v-model="newOverhaulDate" type="date" /></div>
+        <div><label>作業完了予定日</label><input v-model="newOverhaulEndDate" type="date" /></div>
+        <div><label>作業名</label><input v-model="newOverhaulTitle" /></div>
+        <div><label>作業内容</label><input v-model="newOverhaulDetail" /></div>
+      </div>
+      <div class="modal-note">
+        受付期限は契約開始年の12月31日。実施期間は契約開始年11月〜翌年2月末です。新規登録可能：{{
+          bikes.find((b) => b.id === newOverhaulBike)
+            ? scheduleRemaining(
+                bikes.find((b) => b.id === newOverhaulBike)!,
+                'overhaul'
+              )
+            : 0
+        }}
+        / 契約枠
+        {{
+          bikes.find((b) => b.id === newOverhaulBike)
+            ? planFor(bikes.find((b) => b.id === newOverhaulBike)!).overhaulCount
+            : 0
+        }}回（予定・完了を含む）
+      </div>
+      <div class="modal-actions">
+        <button class="outline" @click="showOverhaulModal = false">キャンセル</button
+        ><button
+          class="primary"
+          :disabled="
+            !bikes.find((b) => b.id === newOverhaulBike) ||
+            scheduleRemaining(
+              bikes.find((b) => b.id === newOverhaulBike)!,
+              'overhaul'
+            ) <= 0
+          "
+          @click="addOverhaul"
+        >
+          オーバーホールを登録
+        </button>
+      </div>
+    </div>
+  </div>
+  <div
+    v-if="showMaintenanceModal"
+    class="modal-backdrop"
+    @click.self="showMaintenanceModal = false"
+  >
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">NEW MAINTENANCE</p>
+          <h2>メンテナンス計画を追加</h2>
+        </div>
+        <button class="close" @click="showMaintenanceModal = false">×</button>
+      </div>
+      <div class="detail-grid">
+        <div>
+          <label>顧客・自転車</label
+          ><input
+            v-model="maintenanceBikeSearch"
+            @change="setBikeFromLabel(maintenanceBikeSearch, 'maintenance')"
+            list="bike-options"
+            placeholder="顧客名・自転車名を入力して検索"
+          />
+        </div>
+        <div><label>作業開始予定日</label><input v-model="newWorkDate" type="date" /></div>
+        <div><label>作業完了予定日</label><input v-model="newWorkEndDate" type="date" /></div>
+        <div><label>計画名</label><input v-model="newWorkTitle" /></div>
+        <div><label>作業内容</label><input v-model="newWorkDetail" /></div>
+      </div>
+      <div class="modal-note">
+        新規登録可能：{{
+          bikes.find((b) => b.id === newWorkBike)
+            ? scheduleRemaining(
+                bikes.find((b) => b.id === newWorkBike)!,
+                'maintenance'
+              )
+            : 0
+        }}
+        / 契約枠
+        {{
+          bikes.find((b) => b.id === newWorkBike)
+            ? planFor(bikes.find((b) => b.id === newWorkBike)!).maintenanceCount
+            : 0
+        }}回（予定・完了を含む）
+      </div>
+      <div class="modal-actions">
+        <button class="outline" @click="showMaintenanceModal = false">キャンセル</button
+        ><button
+          class="primary"
+          :disabled="
+            !bikes.find((b) => b.id === newWorkBike) ||
+            scheduleRemaining(
+              bikes.find((b) => b.id === newWorkBike)!,
+              'maintenance'
+            ) <= 0
+          "
+          @click="addMaintenance"
+        >
+          計画を登録
+        </button>
+      </div>
+    </div>
+  </div>
+  <div v-if="showEventModal" class="modal-backdrop" @click.self="showEventModal = false">
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">NEW EVENT & INSPECTION</p>
+          <h2>イベント・点検を登録</h2>
+        </div>
+        <button class="close" @click="showEventModal = false">×</button>
+      </div>
+      <div class="detail-grid">
+        <div>
+          <label>顧客・自転車</label
+          ><input
+            v-model="eventBikeSearch"
+            @change="setBikeFromLabel(eventBikeSearch, 'event')"
+            list="bike-options"
+            placeholder="顧客名・自転車名を入力して検索"
+          />
+        </div>
+        <div>
+          <label>イベント名</label
+          ><input v-model="newEventName" placeholder="例：年間メインイベント" />
+        </div>
+        <div><label>イベント開催日</label><input v-model="newEventDate" type="date" /></div>
+        <div><label>点検開始予定日</label><input v-model="newInspectionDate" type="date" /></div>
+        <div><label>点検完了予定日</label><input v-model="newInspectionEndDate" type="date" /></div>
+      </div>
+      <div class="modal-note">
+        新規登録可能：{{
+          bikes.find((b) => b.id === newEventBike)
+            ? scheduleRemaining(
+                bikes.find((b) => b.id === newEventBike)!,
+                'inspection'
+              )
+            : 0
+        }}
+        / 契約枠
+        {{
+          bikes.find((b) => b.id === newEventBike)
+            ? planFor(bikes.find((b) => b.id === newEventBike)!).inspectionCount
+            : 0
+        }}回（予定・完了を含む）
+      </div>
+      <div class="modal-actions">
+        <button class="outline" @click="showEventModal = false">キャンセル</button
+        ><button
+          class="primary"
+          :disabled="
+            !bikes.find((b) => b.id === newEventBike) ||
+            scheduleRemaining(
+              bikes.find((b) => b.id === newEventBike)!,
+              'inspection'
+            ) <= 0
+          "
+          @click="addEvent"
+        >
+          イベント・点検を登録
+        </button>
+      </div>
+    </div>
+  </div>
+  <div v-if="completionTarget" class="modal-backdrop" @click.self="completionTarget = null">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">WORK COMPLETION</p>
+          <h2>作業完了・メモ登録</h2>
+        </div>
+        <button class="close" @click="completionTarget = null">×</button>
+      </div>
+      <p class="sub">作業内容や交換部品、調整箇所、次回確認事項などを記録できます。</p>
+      <label>作業完了日</label><input v-model="completionDate" type="date" /><label
+        >作業時のメモ</label
+      ><textarea
+        v-model="completionMemo"
+        rows="6"
+        placeholder="例：チェーン・スプロケットを洗浄。リアブレーキパッド交換。変速調整済み。次回はタイヤ摩耗を確認。"
+      ></textarea>
+      <div class="modal-note">
+        メモは作業履歴に保存され、後から「メンテナンス履歴」画面で確認できます。
+      </div>
+      <div class="modal-actions">
+        <button class="outline" @click="completionTarget = null">キャンセル</button
+        ><button class="primary" @click="confirmCompletion">作業完了として保存</button>
+      </div>
+    </div>
+  </div>
+  <div v-if="editTarget" class="modal-backdrop" @click.self="editTarget = null">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">EDIT SCHEDULE</p>
+          <h2>予定の変更</h2>
+        </div>
+        <button class="close" @click="editTarget = null">×</button>
+      </div>
+      <label>作業開始日</label><input v-model="editDate" type="date" /><label>作業完了予定日</label
+      ><input v-model="editEndDate" type="date" /><label>予定名・イベント名</label
+      ><input v-model="editTitle" /><label>内容・メモ</label><input v-model="editDetail" /><label
+        >受付担当者</label
+      ><select v-model="editReceptionist">
+        <option v-for="person in staff" :key="person.id">{{ person.name }}</option>
+      </select>
+      <div class="modal-note">
+        開始日・完了予定日を変更できます。完了日は開始日以降にしてください。契約回数は作業完了時のみ消費します。
+      </div>
+      <div class="modal-actions">
+        <button class="outline" @click="editTarget = null">キャンセル</button
+        ><button class="primary" @click="saveEdit">変更を保存</button>
+      </div>
+    </div>
+  </div>
+  <div v-if="showMail" class="modal-backdrop" @click.self="showMail = false">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">EMAIL PREVIEW</p>
+          <h2>メンテナンス案内メール</h2>
+        </div>
+        <button class="close" @click="showMail = false">×</button>
+      </div>
+      <label>送信先</label
+      ><select v-model="mailTarget">
+        <option v-for="c in customers" :key="c.name">{{ c.name }}</option></select
+      ><label>件名</label><input v-model="mailKind" /><label>本文</label>
+      <div class="mail-body">
+        {{ mailTarget }}
+        様<br /><br />いつもご利用いただきありがとうございます。<br />メンテナンス・点検予定についてご案内いたします。<br /><br />ご希望の日程がございましたら店舗までご連絡ください。<br /><br />今後ともよろしくお願いいたします。
+      </div>
+      <div class="modal-note">※ モックのため、実際のメール送信は行われません。</div>
+      <div class="modal-actions">
+        <button class="outline" @click="showMail = false">閉じる</button
+        ><button class="primary" @click="sendMail">送信（デモ）</button>
+      </div>
+    </div>
+  </div>
+  <datalist id="customer-options">
+    <option v-for="c in customers" :key="c.name" :value="c.name" /></datalist
+  ><datalist id="bike-options">
+    <option v-for="b in bikes" :key="b.id" :value="bikeLabel(b.id)" />
+  </datalist>
 </template>

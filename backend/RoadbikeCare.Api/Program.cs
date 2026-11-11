@@ -129,8 +129,15 @@ app.MapPut("/api/work/{id:int}", (int id, UpdateWorkRequest input, MockDataStore
     if (input.EndDate is not null && input.EndDate < input.StartDate) return (IResult)Bad("完了予定日は開始日以降にしてください。");
     var old = db.WorkItems[index];
     if (old.Status == "完了") return (IResult)Bad("完了済みの作業は変更できません。");
-    var updated = old with { StartDate = input.StartDate, EndDate = input.EndDate, Status = input.Status,
-        Title = input.Title, Detail = input.Detail, ReceptionistId = input.ReceptionistId };
+    var updated = old with
+    {
+        StartDate = input.StartDate,
+        EndDate = input.EndDate,
+        Status = input.Status,
+        Title = input.Title,
+        Detail = input.Detail,
+        ReceptionistId = input.ReceptionistId
+    };
     db.WorkItems[index] = updated;
     return (IResult)Results.Ok(WorkView(db, updated));
 });
@@ -275,41 +282,88 @@ object BikeView(MockDataStore db, Bike b)
     var plan = contract is null ? null : db.Plans.FirstOrDefault(x => x.Id == contract.PlanId);
     return new
     {
-        b.Id, b.CustomerId, Customer = db.Customers.FirstOrDefault(x => x.Id == b.CustomerId)?.Name ?? "",
-        b.Maker, b.Model, b.Year, b.Serial, b.ActiveContractId,
-        ContractStart = contract?.StartDate, ContractEnd = contract?.EndDate,
-        OverhaulUsed = contract?.OverhaulUsed ?? 0, MaintenanceUsed = contract?.MaintenanceUsed ?? 0,
-        InspectionUsed = contract?.InspectionUsed ?? 0, Plan = plan,
-        ShopId = contract?.ShopId, ReceptionistId = contract?.ReceptionistId
+        b.Id,
+        b.CustomerId,
+        Customer = db.Customers.FirstOrDefault(x => x.Id == b.CustomerId)?.Name ?? "",
+        b.Maker,
+        b.Model,
+        b.Year,
+        b.Serial,
+        b.ActiveContractId,
+        ContractStart = contract?.StartDate,
+        ContractEnd = contract?.EndDate,
+        OverhaulUsed = contract?.OverhaulUsed ?? 0,
+        MaintenanceUsed = contract?.MaintenanceUsed ?? 0,
+        InspectionUsed = contract?.InspectionUsed ?? 0,
+        Plan = plan,
+        ShopId = contract?.ShopId,
+        ReceptionistId = contract?.ReceptionistId
     };
 }
 object ContractView(MockDataStore db, Contract c) => new
 {
-    c.Id, c.BikeId, Bike = db.Bikes.FirstOrDefault(x => x.Id == c.BikeId),
+    c.Id,
+    c.BikeId,
+    Bike = db.Bikes.FirstOrDefault(x => x.Id == c.BikeId),
     Customer = db.Bikes.FirstOrDefault(x => x.Id == c.BikeId) is { } b ? db.Customers.FirstOrDefault(x => x.Id == b.CustomerId)?.Name : null,
-    Plan = db.Plans.FirstOrDefault(x => x.Id == c.PlanId), Shop = db.Shops.FirstOrDefault(x => x.Id == c.ShopId),
-    Receptionist = db.Staff.FirstOrDefault(x => x.Id == c.ReceptionistId), c.PlanId, c.ApplicationDate,
-    c.StartDate, c.EndDate, c.ShopId, c.ReceptionistId, c.OverhaulUsed, c.MaintenanceUsed,
-    c.InspectionUsed, c.IsActive
+    Plan = db.Plans.FirstOrDefault(x => x.Id == c.PlanId),
+    Shop = db.Shops.FirstOrDefault(x => x.Id == c.ShopId),
+    Receptionist = db.Staff.FirstOrDefault(x => x.Id == c.ReceptionistId),
+    c.PlanId,
+    c.ApplicationDate,
+    c.StartDate,
+    c.EndDate,
+    c.ShopId,
+    c.ReceptionistId,
+    c.OverhaulUsed,
+    c.MaintenanceUsed,
+    c.InspectionUsed,
+    c.IsActive
 };
 object WorkView(MockDataStore db, WorkItem x) => new
 {
-    x.Id, x.BikeId, Bike = BikeView(db, db.Bikes.First(b => b.Id == x.BikeId)), x.Kind,
-    x.StartDate, x.EndDate, x.Status, x.Title, x.Detail, x.ShopId, x.ReceptionistId,
+    x.Id,
+    x.BikeId,
+    Bike = BikeView(db, db.Bikes.First(b => b.Id == x.BikeId)),
+    x.Kind,
+    x.StartDate,
+    x.EndDate,
+    x.Status,
+    x.Title,
+    x.Detail,
+    x.ShopId,
+    x.ReceptionistId,
     Shop = db.Shops.FirstOrDefault(s => s.Id == x.ShopId)?.Name,
     Receptionist = db.Staff.FirstOrDefault(s => s.Id == x.ReceptionistId)?.Name,
-    x.CompletedDate, x.Memo
+    x.CompletedDate,
+    x.Memo
 };
 object EventView(MockDataStore db, EventCheck x) => new
 {
-    x.Id, x.BikeId, Bike = BikeView(db, db.Bikes.First(b => b.Id == x.BikeId)), x.Name,
-    x.EventDate, x.InspectionStartDate, x.InspectionEndDate, x.Status, x.Memo,
-    x.ShopId, x.ReceptionistId, x.CompletedDate
+    x.Id,
+    x.BikeId,
+    Bike = BikeView(db, db.Bikes.First(b => b.Id == x.BikeId)),
+    x.Name,
+    x.EventDate,
+    x.InspectionStartDate,
+    x.InspectionEndDate,
+    x.Status,
+    x.Memo,
+    x.ShopId,
+    x.ReceptionistId,
+    x.CompletedDate
 };
 object HistoryView(MockDataStore db, WorkHistory x) => new
 {
-    x.Id, x.BikeId, Bike = BikeView(db, db.Bikes.First(b => b.Id == x.BikeId)), x.Date,
-    x.StartDate, x.Category, x.Title, x.Detail, x.Memo
+    x.Id,
+    x.BikeId,
+    Bike = BikeView(db, db.Bikes.First(b => b.Id == x.BikeId)),
+    x.Date,
+    x.StartDate,
+    x.Category,
+    x.Title,
+    x.Detail,
+    x.Memo
 };
 
 static IResult Find<T>(IEnumerable<T> items, int id) where T : notnull =>
