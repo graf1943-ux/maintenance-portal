@@ -6,6 +6,7 @@
   import BikeContractsView from './components/bikes/BikeContractsView.vue';
   import OverhaulView from './components/overhaul/OverhaulView.vue';
   import MaintenanceView from './components/maintenance/MaintenanceView.vue';
+  import EventInspectionView from './components/events/EventInspectionView.vue';
   import { apiGet, apiPost, apiPut } from './api';
   import type { Page, Status, Plan, Bike, Work, EventCheck, History } from './types';
   import { pageTitles } from './constants/pages';
@@ -799,6 +800,47 @@
   const maintenanceBikeFilterCount = computed(
     () => maintenance.value.filter((work) => matchesBikeFilter(work.bikeId)).length
   );
+  const eventInspectionRows = computed(() =>
+    sortByDate(
+      eventChecks.value
+        .filter((event) => {
+          const bike = bikes.value.find((item) => item.id === event.bikeId);
+          return (
+            matchesBikeFilter(event.bikeId) &&
+            matches(
+              searchEvents.value,
+              event.name,
+              event.memo,
+              event.eventDate,
+              event.inspectionDate,
+              event.status,
+              bike?.customer,
+              bike?.model,
+              bike?.maker,
+              bike?.model,
+              shops.value.find((shop) => shop.id === event.shopId)?.name,
+              event.receptionist
+            )
+          );
+        })
+        .map((event) => {
+          const bike = bikes.value.find((item) => item.id === event.bikeId)!;
+          return {
+            event,
+            bike,
+            remaining: scheduleRemaining(bike, 'inspection'),
+            shopName: shops.value.find((shop) => shop.id === event.shopId)?.name ?? '',
+          };
+        }),
+      'events',
+      (row) => row.event.inspectionDate,
+      (row) => row.bike.customer,
+      (row) => row.event.status
+    )
+  );
+  const eventInspectionCount = computed(
+    () => eventChecks.value.filter((event) => matchesBikeFilter(event.bikeId)).length
+  );
   function updateMaintenanceStatus(work: Work, status: Status) {
     const target = maintenance.value.find((item) => item.id === work.id);
     if (target) target.status = status;
@@ -1515,165 +1557,28 @@
           />
         </template>
 
-        <template v-else-if="page === 'events'"
-          ><div class="page-heading">
-            <div>
-              <p class="eyebrow">TARGET EVENTS & INSPECTIONS</p>
-              <h1>目標イベント・点検サポート</h1>
-              <p class="sub">顧客のメインイベントと、その前に行う点検サポートを管理します。</p>
-            </div>
-          </div>
-          <div class="callout">
-            <b>点検サポートはメンテナンスとは別枠</b>
-            <p>
-              点検サポートの実施完了時にのみ、プランの点検回数を1回消費します。メンテナンス回数とは相互に影響しません。
-            </p>
-          </div>
-          <div class="list-toolbar">
-            <span class="muted">顧客詳細から登録したイベント・点検予定の一覧です。</span>
-          </div>
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>イベント・点検サポート一覧</h2>
-                <p>点検完了時に点検サポート枠を消費</p>
-              </div>
-              <div class="list-name-filters">
-                <input
-                  class="search"
-                  v-model="customerFilterText"
-                  placeholder="顧客名で検索"
-                /><input
-                  class="search"
-                  v-model="bikeFilterText"
-                  placeholder="自転車名・メーカーで検索"
-                /><button
-                  v-if="customerFilterText || bikeFilterText || selectedBikeFilter"
-                  class="outline small"
-                  @click="clearBikeNameFilters"
-                >
-                  条件クリア
-                </button>
-              </div>
-              <input
-                class="search"
-                v-model="searchEvents"
-                placeholder="イベント名・メモ・店舗・担当者で検索"
-              /><span class="count"
-                >{{ eventChecks.filter((x) => matchesBikeFilter(x.bikeId)).length }}件</span
-              >
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('events', 'customer')">
-                        顧客 {{ sortLabel('events', 'customer') }}
-                      </button>
-                    </th>
-                    <th>自転車</th>
-                    <th>イベント名</th>
-                    <th>開催日</th>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('events', 'date')">
-                        点検開始日 {{ sortLabel('events', 'date') }}
-                      </button>
-                      / 完了日
-                    </th>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('events', 'status')">
-                        状態 {{ sortLabel('events', 'status') }}
-                      </button>
-                    </th>
-                    <th>新規登録可能枠</th>
-                    <th>受付担当</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="e in sortByDate(
-                      eventChecks.filter((x) => {
-                        const b = bikes.find((y) => y.id === x.bikeId);
-                        return (
-                          matchesBikeFilter(x.bikeId) &&
-                          matches(
-                            searchEvents,
-                            x.name,
-                            x.memo,
-                            x.eventDate,
-                            x.inspectionDate,
-                            x.status,
-                            b?.customer,
-                            b?.model,
-                            b?.maker,
-                            b?.model,
-                            shops.find((sh) => sh.id === x.shopId)?.name,
-                            x.receptionist
-                          )
-                        );
-                      }),
-                      'events',
-                      (x) => x.inspectionDate,
-                      (x) => bikes.find((b) => b.id === x.bikeId)?.customer || '',
-                      (x) => x.status
-                    )"
-                    :key="e.id"
-                  >
-                    <td>{{ bikes.find((b) => b.id === e.bikeId)?.customer }}</td>
-                    <td>{{ bikes.find((b) => b.id === e.bikeId)?.model }}</td>
-                    <td>
-                      <b>{{ e.name }}</b><small class="cell-sub">{{ e.memo }}</small>
-                    </td>
-                    <td>{{ e.eventDate }}</td>
-                    <td>
-                      {{ e.inspectionDate
-                      }}<small class="cell-sub">〜 {{ e.endDate || '未定' }}</small>
-                    </td>
-                    <td>
-                      <span class="status info">{{ e.status }}</span>
-                    </td>
-                    <td>
-                      {{
-                        scheduleRemaining(
-                          bikes.find((b) => b.id === e.bikeId)!,
-                          'inspection'
-                        )
-                      }}回
-                    </td>
-                    <td>{{ shops.find((x) => x.id === e.shopId)?.name }} / {{ e.receptionist }}</td>
-                    <td>
-                      <button
-                        v-if="e.status !== '完了'"
-                        class="outline small"
-                        @click="openEdit('event', e)"
-                      >
-                        編集
-                      </button>
-                      <button
-                        v-if="
-                          e.status === '予定' || e.status === '予約済み' || e.status === '案内済み'
-                        "
-                        class="outline small"
-                        @click="startWork('event', e)"
-                      >
-                        作業開始
-                      </button>
-                      <button
-                        v-if="e.status === '作業中'"
-                        class="primary small"
-                        @click="startCompletion('event', e)"
-                      >
-                        完了登録</button
-                      ><span v-if="e.status === '完了'" class="done">✓ 完了</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section></template
-        >
+        <template v-else-if="page === 'events'">
+          <EventInspectionView
+            :rows="eventInspectionRows"
+            :count="eventInspectionCount"
+            :customer-filter-text="customerFilterText"
+            :bike-filter-text="bikeFilterText"
+            :selected-bike-filter="selectedBikeFilter"
+            :search-text="searchEvents"
+            :customer-sort-label="sortLabel('events', 'customer')"
+            :date-sort-label="sortLabel('events', 'date')"
+            :status-sort-label="sortLabel('events', 'status')"
+            @update:customer-filter-text="customerFilterText = $event"
+            @update:bike-filter-text="bikeFilterText = $event"
+            @update:search-text="searchEvents = $event"
+            @clear-filters="clearBikeNameFilters"
+            @sort="toggleListSort('events', $event)"
+            @open-customer="openCustomerDetail"
+            @edit="openEdit('event', $event)"
+            @start-work="startWork('event', $event)"
+            @complete="startCompletion('event', $event)"
+          />
+        </template>
 
         <template v-else-if="page === 'history'"
           ><div class="page-heading">
