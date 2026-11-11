@@ -4,6 +4,7 @@
   import AppHeader from './components/layout/AppHeader.vue';
   import DashboardView from './components/dashboard/DashboardView.vue';
   import BikeContractsView from './components/bikes/BikeContractsView.vue';
+  import OverhaulView from './components/overhaul/OverhaulView.vue';
   import { apiGet, apiPost, apiPut } from './api';
   import type { Page, Status, Plan, Bike, Work, EventCheck, History } from './types';
   import { pageTitles } from './constants/pages';
@@ -722,6 +723,41 @@
       (row) => row.bike.customer
     )
   );
+  const overhaulRows = computed(() =>
+    sortByDate(
+      overhauls.value
+        .filter((work) => {
+          const bike = bikes.value.find((item) => item.id === work.bikeId);
+          return (
+            matchesBikeFilter(work.bikeId) &&
+            matches(
+              searchOverhauls.value,
+              bike?.customer,
+              bike?.model,
+              bike?.maker,
+              bike?.model,
+              work.date,
+              work.status,
+              work.title,
+              work.detail,
+              shops.value.find((shop) => shop.id === work.shopId)?.name,
+              work.receptionist
+            )
+          );
+        })
+        .map((work) => {
+          const bike = bikes.value.find((item) => item.id === work.bikeId)!;
+          return { work, bike, remaining: scheduleRemaining(bike, 'overhaul') };
+        }),
+      'overhaul',
+      (row) => row.work.date,
+      (row) => row.bike.customer,
+      (row) => row.work.status
+    )
+  );
+  const overhaulBikeFilterCount = computed(
+    () => overhauls.value.filter((work) => matchesBikeFilter(work.bikeId)).length
+  );
   function setPage(p: Page) {
     page.value = p;
     notice.value = '';
@@ -1386,168 +1422,28 @@
             @open-bike="openBikeDetail"
           />
         </template>
-        <template v-else-if="page === 'overhaul'"
-          ><div class="page-heading">
-            <div>
-              <p class="eyebrow">OVERHAUL MANAGEMENT</p>
-              <h1>オーバーホール</h1>
-              <p class="sub">年間プランに含まれるオーバーホールの予定・実績を管理します。</p>
-            </div>
-          </div>
-          <div class="callout">
-            <b>受付期限：契約開始年の12月31日 ／ 基本実施期間：契約開始年11月1日〜翌年2月末</b>
-            <p>
-              オーバーホールの受付は12月末まで可能で、11月中の契約・受付・実施もシステム上登録できます。実施は契約開始年の11月から翌年2月末までです。オーバーホールとメンテナンスは同じ年間プランに含まれます。完了日は記録しますが、その日から一定間隔でメンテナンス予定を自動生成することはありません。
-            </p>
-          </div>
-          <div class="list-toolbar">
-            <span class="muted">顧客詳細から登録した予定・実績の一覧です。</span>
-          </div>
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>オーバーホール予定・実績</h2>
-                <p>実施完了時にオーバーホール回数を消費</p>
-              </div>
-              <div class="list-name-filters">
-                <input
-                  class="search"
-                  v-model="customerFilterText"
-                  placeholder="顧客名で検索"
-                /><input
-                  class="search"
-                  v-model="bikeFilterText"
-                  placeholder="自転車名・メーカーで検索"
-                /><button
-                  v-if="customerFilterText || bikeFilterText || selectedBikeFilter"
-                  class="outline small"
-                  @click="clearBikeNameFilters"
-                >
-                  条件クリア
-                </button>
-              </div>
-              <input
-                class="search"
-                v-model="searchOverhauls"
-                placeholder="予定名・作業内容・店舗・担当者で検索"
-              /><span class="count"
-                >{{ overhauls.filter((x) => matchesBikeFilter(x.bikeId)).length }}件</span
-              >
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('overhaul', 'customer')">
-                        顧客 {{ sortLabel('overhaul', 'customer') }}
-                      </button>
-                    </th>
-                    <th>自転車</th>
-                    <th>作業内容</th>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('overhaul', 'date')">
-                        開始日 {{ sortLabel('overhaul', 'date') }}
-                      </button>
-                      / 完了日
-                    </th>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('overhaul', 'status')">
-                        状態 {{ sortLabel('overhaul', 'status') }}
-                      </button>
-                    </th>
-                    <th>新規登録可能枠</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="w in sortByDate(
-                      overhauls.filter((x) => {
-                        const b = bikes.find((y) => y.id === x.bikeId);
-                        return (
-                          matchesBikeFilter(x.bikeId) &&
-                          matches(
-                            searchOverhauls,
-                            b?.customer,
-                            b?.model,
-                            b?.maker,
-                            b?.model,
-                            x.date,
-                            x.status,
-                            x.title,
-                            x.detail,
-                            shops.find((sh) => sh.id === x.shopId)?.name,
-                            x.receptionist
-                          )
-                        );
-                      }),
-                      'overhaul',
-                      (x) => x.date,
-                      (x) => bikes.find((b) => b.id === x.bikeId)?.customer || '',
-                      (x) => x.status
-                    )"
-                    :key="w.id"
-                  >
-                    <td>
-                      <button
-                        class="customer-link"
-                        @click="
-                          openCustomerDetail(bikes.find((b) => b.id === w.bikeId)?.customer || '')
-                        "
-                      >
-                        {{ bikes.find((b) => b.id === w.bikeId)?.customer }}
-                      </button>
-                    </td>
-                    <td>{{ bikes.find((b) => b.id === w.bikeId)?.model }}</td>
-                    <td>
-                      <b>{{ w.title }}</b><small class="cell-sub">{{ w.detail }}</small>
-                    </td>
-                    <td>
-                      {{ w.date }}<small class="cell-sub">〜 {{ w.endDate || '未定' }}</small>
-                    </td>
-                    <td>
-                      <span class="status info">{{ w.status }}</span>
-                    </td>
-                    <td>
-                      {{
-                        scheduleRemaining(
-                          bikes.find((b) => b.id === w.bikeId)!,
-                          'overhaul'
-                        )
-                      }}回
-                    </td>
-                    <td>
-                      <button
-                        v-if="w.status !== '完了'"
-                        class="outline small"
-                        @click="openEdit('overhaul', w)"
-                      >
-                        編集
-                      </button>
-                      <button
-                        v-if="
-                          w.status === '予定' || w.status === '予約済み' || w.status === '案内済み'
-                        "
-                        class="outline small"
-                        @click="startWork('overhaul', w)"
-                      >
-                        作業開始
-                      </button>
-                      <button
-                        v-if="w.status === '作業中'"
-                        class="primary small"
-                        @click="startCompletion('overhaul', w)"
-                      >
-                        完了登録</button
-                      ><span v-if="w.status === '完了'" class="done">✓ 完了</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section></template
-        >
+        <template v-else-if="page === 'overhaul'">
+          <OverhaulView
+            :rows="overhaulRows"
+            :count="overhaulBikeFilterCount"
+            :customer-filter-text="customerFilterText"
+            :bike-filter-text="bikeFilterText"
+            :selected-bike-filter="selectedBikeFilter"
+            :search-text="searchOverhauls"
+            :customer-sort-label="sortLabel('overhaul', 'customer')"
+            :date-sort-label="sortLabel('overhaul', 'date')"
+            :status-sort-label="sortLabel('overhaul', 'status')"
+            @update:customer-filter-text="customerFilterText = $event"
+            @update:bike-filter-text="bikeFilterText = $event"
+            @update:search-text="searchOverhauls = $event"
+            @clear-filters="clearBikeNameFilters"
+            @sort="toggleListSort('overhaul', $event)"
+            @open-customer="openCustomerDetail"
+            @edit="openEdit('overhaul', $event)"
+            @start-work="startWork('overhaul', $event)"
+            @complete="startCompletion('overhaul', $event)"
+          />
+        </template>
 
         <template v-else-if="page === 'maintenance'"
           ><div class="page-heading">
