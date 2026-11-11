@@ -1,5 +1,7 @@
 <script setup lang="ts">
   import { computed, onMounted, ref } from 'vue';
+  import AppSidebar from './components/layout/AppSidebar.vue';
+  import AppHeader from './components/layout/AppHeader.vue';
   import { apiGet, apiPost, apiPut } from './api';
   import type { Page, Status, Plan, Bike, Work, EventCheck, History } from './types';
   import { pageTitles } from './constants/pages';
@@ -1164,6 +1166,11 @@
     }
   }
 
+  function toggleRole() {
+    role.value = role.value === 'staff' ? 'customer' : 'staff';
+    page.value = role.value === 'customer' ? 'mypage' : 'dashboard';
+  }
+
   function sendMail() {
     showMail.value = false;
     notice.value = `${mailTarget.value} 様への「${mailKind.value}」を送信した想定のデモです（実際には送信されません）。`;
@@ -1171,118 +1178,9 @@
 </script>
 <template>
   <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">R</div>
-        <div><strong>ROAD BIKE CARE</strong><small>メンテナンス管理</small></div>
-      </div>
-      <template v-if="role === 'staff'">
-        <div class="nav-group">
-          <div class="nav-group-title">ホーム</div>
-          <button
-            class="nav-item"
-            :class="{ active: page === 'dashboard' }"
-            @click="setPage('dashboard')"
-          >
-            <span class="nav-icon">▦</span>ダッシュボード
-          </button>
-        </div>
-        <div class="nav-group">
-          <div class="nav-group-title">顧客・契約管理</div>
-          <button
-            v-for="item in [{ id: 'bikes', label: '顧客・自転車・契約管理', icon: '🚴' }]"
-            :key="item.id"
-            class="nav-item"
-            :class="{ active: page === item.id }"
-            @click="setPage(item.id as Page)"
-          >
-            <span class="nav-icon">{{ item.icon }}</span>{{ item.label }}
-          </button>
-        </div>
-        <div class="nav-group">
-          <div class="nav-group-title">顧客向けサービス業務</div>
-          <button
-            v-for="item in [
-              { id: 'overhaul', label: 'オーバーホール', icon: '⚙' },
-              { id: 'maintenance', label: 'メンテナンス計画', icon: '◷' },
-              { id: 'events', label: '目標イベント・点検', icon: '◇' },
-              { id: 'history', label: 'メンテナンス履歴', icon: '▤' },
-            ]"
-            :key="item.id"
-            class="nav-item"
-            :class="{ active: page === item.id }"
-            @click="setPage(item.id as Page)"
-          >
-            <span class="nav-icon">{{ item.icon }}</span>{{ item.label }}
-          </button>
-        </div>
-        <div class="nav-group">
-          <div class="nav-group-title">顧客対応</div>
-          <button
-            class="nav-item"
-            :class="{ active: page === 'messages' }"
-            @click="setPage('messages')"
-          >
-            <span class="nav-icon">✉</span>連絡・メール管理
-          </button>
-        </div>
-        <div class="nav-group">
-          <div class="nav-group-title">店舗運営・設定</div>
-          <button
-            v-for="item in [
-              { id: 'shops', label: '店舗・担当者管理', icon: '⌂' },
-              { id: 'plans', label: 'プラン設定', icon: '▣' },
-            ]"
-            :key="item.id"
-            class="nav-item"
-            :class="{ active: page === item.id }"
-            @click="setPage(item.id as Page)"
-          >
-            <span class="nav-icon">{{ item.icon }}</span>{{ item.label }}
-          </button>
-        </div>
-      </template>
-      <template v-else
-        ><div class="nav-group">
-          <div class="nav-group-title">お客様メニュー</div>
-          <button
-            class="nav-item"
-            :class="{ active: page === 'mypage' }"
-            @click="setPage('mypage')"
-          >
-            <span class="nav-icon">▣</span>マイページ
-          </button>
-        </div></template
-      >
-      <div class="sidebar-bottom">
-        <div class="side-label">表示モード</div>
-        <button
-          class="mode-switch"
-          @click="
-            role = role === 'staff' ? 'customer' : 'staff';
-            page = role === 'customer' ? 'mypage' : 'dashboard';
-          "
-        >
-          <span>{{ role === 'staff' ? '店舗スタッフ' : '顧客マイページ' }}</span><span>切替 ↗</span>
-        </button>
-        <div class="user">
-          <div class="avatar">店</div>
-          <div>
-            <b>{{ role === 'staff' ? '店舗管理者' : '山田 太郎' }}</b><small>{{
-              role === 'staff' ? 'スタッフアカウント' : '顧客アカウント'
-            }}</small>
-          </div>
-        </div>
-      </div>
-    </aside>
+    <AppSidebar :page="page" :role="role" @navigate="setPage" @toggle-role="toggleRole" />
     <main class="main">
-      <header class="topbar">
-        <div class="breadcrumb">ROAD BIKE CARE <span>/</span> {{ pageTitles[page] }}</div>
-        <div class="top-actions">
-          <span class="today">{{ today }}</span>
-          <div class="avatar">店</div>
-        </div>
-      </header>
+      <AppHeader :page-title="pageTitles[page]" :today="today" />
       <div class="content">
         <div class="data-source-indicator" :class="dataSourceStatus">
           <strong>{{
