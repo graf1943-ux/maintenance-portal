@@ -2,6 +2,7 @@
   import { computed, onMounted, ref } from 'vue';
   import AppSidebar from './components/layout/AppSidebar.vue';
   import AppHeader from './components/layout/AppHeader.vue';
+  import DashboardView from './components/dashboard/DashboardView.vue';
   import { apiGet, apiPost, apiPut } from './api';
   import type { Page, Status, Plan, Bike, Work, EventCheck, History } from './types';
   import { pageTitles } from './constants/pages';
@@ -671,6 +672,15 @@
         .map((x) => ({ ...x, date: x.inspectionDate, title: x.name, kind: 'イベント前点検' })),
     ].sort((a, b) => a.date.localeCompare(b.date))
   );
+  const dashboardRows = computed(() =>
+    sortByDate(
+      allUpcoming.value,
+      'dashboard',
+      (x) => x.date,
+      (x) => bikes.value.find((b) => b.id === x.bikeId)?.customer || '',
+      (x) => x.status
+    ).slice(0, 7)
+  );
   const customerBikes = computed(() => bikes.value.filter((b) => b.customer === '山田 太郎'));
   const bikeCountForCustomer = (name: string) =>
     bikes.value.filter((b) => b.customer === name).length;
@@ -1200,118 +1210,19 @@
         <div v-if="notice" class="notice">
           <span>{{ notice }}</span><button @click="notice = ''">×</button>
         </div>
-        <template v-if="page === 'dashboard'"
-          ><div class="page-heading">
-            <div>
-              <p class="eyebrow">ROAD BIKE SERVICE OVERVIEW</p>
-              <h1>ダッシュボード</h1>
-              <p class="sub">
-                年間契約・オーバーホール・目標イベントに向けた作業計画を管理します。
-              </p>
-            </div>
-          </div>
-          <div class="callout">
-            <b>年間契約受付：12月1日〜12月31日 ／ 契約期間：12月1日〜翌年11月30日</b>
-            <p>
-              オーバーホールは11月〜翌年2月末に実施（受付は12月31日まで）。メンテナンス・点検サポートは目標イベントに合わせて計画します。
-            </p>
-          </div>
-          <div class="stats">
-            <div class="stat-card">
-              <div class="stat-top">
-                <span>登録自転車数</span><span class="stat-icon blue">🚴</span>
-              </div>
-              <strong>{{ bikes.length }}</strong><small>台</small>
-            </div>
-            <div class="stat-card">
-              <div class="stat-top">
-                <span>未完了の作業予定</span><span class="stat-icon purple">⚙</span>
-              </div>
-              <strong>{{ upcomingCount }}</strong><small>件</small>
-            </div>
-            <div class="stat-card">
-              <div class="stat-top">
-                <span>案内待ち</span><span class="stat-icon orange">✉</span>
-              </div>
-              <strong>{{ pendingCount }}</strong><small>件</small>
-            </div>
-            <div class="stat-card">
-              <div class="stat-top">
-                <span>作業履歴</span><span class="stat-icon green">✓</span>
-              </div>
-              <strong>{{ completedCount }}</strong><small>件</small>
-            </div>
-          </div>
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>直近の作業予定</h2>
-                <p>オーバーホール・メンテナンス・イベント前点検</p>
-              </div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('dashboard', 'customer')">
-                        顧客 {{ sortLabel('dashboard', 'customer') }}
-                      </button>
-                    </th>
-                    <th>自転車</th>
-                    <th>作業区分</th>
-                    <th>内容</th>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('dashboard', 'date')">
-                        開始日 {{ sortLabel('dashboard', 'date') }} / 完了日
-                      </button>
-                    </th>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('dashboard', 'status')">
-                        状態 {{ sortLabel('dashboard', 'status') }}
-                      </button>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="w in sortByDate(
-                      allUpcoming,
-                      'dashboard',
-                      (x) => x.date,
-                      (x) => bikes.find((b) => b.id === x.bikeId)?.customer || '',
-                      (x) => x.status
-                    ).slice(0, 7)"
-                    :key="w.id + '-' + w.kind"
-                  >
-                    <td>
-                      <button
-                        class="customer-link"
-                        @click="
-                          openCustomerDetail(bikes.find((b) => b.id === w.bikeId)?.customer || '')
-                        "
-                      >
-                        {{ bikes.find((b) => b.id === w.bikeId)?.customer }}
-                      </button>
-                    </td>
-                    <td>{{ bikes.find((b) => b.id === w.bikeId)?.model }}</td>
-                    <td>{{ w.kind }}</td>
-                    <td>{{ w.title }}</td>
-                    <td>
-                      <b>{{ w.date }}</b><small class="cell-sub"
-                        >〜 {{ w.endDate || '未定' }}</small
-                      >
-                    </td>
-                    <td>
-                      <span class="status info">{{ w.status }}</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </template>
-
+        <DashboardView
+          v-if="page === 'dashboard'"
+          :bikes="bikes"
+          :dashboard-rows="dashboardRows"
+          :upcoming-count="upcomingCount"
+          :pending-count="pendingCount"
+          :completed-count="completedCount"
+          :customer-sort-label="sortLabel('dashboard', 'customer')"
+          :date-sort-label="sortLabel('dashboard', 'date')"
+          :status-sort-label="sortLabel('dashboard', 'status')"
+          @sort="toggleListSort('dashboard', $event)"
+          @open-customer="openCustomerDetail"
+        />
         <template v-else-if="page === 'shops'"
           ><div class="page-heading">
             <div>
