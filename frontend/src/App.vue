@@ -29,6 +29,7 @@
     isAnnualContractStart,
     isApplicationWithinContractYear,
   } from './services/contractRules';
+  import { useScheduleRegistration } from './composables/useScheduleRegistration';
   const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true';
   const dataSourceStatus = ref<'mock' | 'api' | 'error'>(USE_MOCK_DATA ? 'mock' : 'api');
   const dataSourceLabel = USE_MOCK_DATA ? 'MOCK DATA' : 'API MODE';
@@ -1248,198 +1249,41 @@
     if (ok) editTarget.value = null;
   }
 
-  async function addOverhaul() {
-    if (bikeLabel(newOverhaulBike.value) !== overhaulBikeSearch.value) {
-      notice.value = '顧客・自転車は候補から選択してください。';
-      return;
-    }
-    const b = bikes.value.find((x) => x.id === newOverhaulBike.value);
-    if (!b) {
-      notice.value = '登録対象の自転車を選択してください。';
-      return;
-    }
-    if (scheduleRemaining(b, 'overhaul') <= 0) {
-      notice.value = `${b.maker} ${b.model} のオーバーホールは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`;
-      return;
-    }
-    const receptionDate = newOverhaulReceptionDate.value,
-      contractYear = Number(b.contractStart.slice(0, 4));
-    if (!receptionDate || receptionDate > `${contractYear}-12-31`) {
-      notice.value = 'オーバーホールの受付期限は契約開始年の12月31日です。';
-      return;
-    }
-    if (
-      !isOverhaulSeason(newOverhaulDate.value, contractYear) ||
-      (newOverhaulEndDate.value && !isOverhaulSeason(newOverhaulEndDate.value, contractYear))
-    ) {
-      notice.value =
-        'オーバーホールの実施予定日は契約開始年の11月1日〜翌年2月末の期間で設定してください。';
-      return;
-    }
-    if (receptionDate > newOverhaulDate.value) {
-      notice.value = '受付日は実施予定日以前の日付にしてください。同日での受付・実施は可能です。';
-      return;
-    }
-    if (newOverhaulEndDate.value && newOverhaulEndDate.value < newOverhaulDate.value) {
-      notice.value = '完了予定日は開始予定日以降にしてください。';
-      return;
-    }
-    const person =
-      staff.value.find((x) => x.shopId === b.shopId && x.name === b.receptionist) ??
-      staff.value.find((x) => x.shopId === b.shopId);
-    if (!person) {
-      notice.value = '受付担当者を確認してください。';
-      return;
-    }
-    if (USE_MOCK_DATA) {
-      const item: Work = {
-        id: Math.max(0, ...overhauls.value.map((x) => x.id)) + 1,
-        bikeId: b.id,
-        date: dateSlash(newOverhaulDate.value),
-        endDate: newOverhaulEndDate.value ? dateSlash(newOverhaulEndDate.value) : undefined,
-        status: '予定',
-        title: newOverhaulTitle.value,
-        detail: newOverhaulDetail.value,
-        shopId: b.shopId,
-        receptionist: person.name,
-      };
-      overhauls.value.unshift(item);
-      showOverhaulModal.value = false;
-      dataSourceStatus.value = 'mock';
-      notice.value =
-        'オーバーホール予定をVueモックデータに登録しました。画面を再読み込みすると初期データに戻ります。';
-      return;
-    }
-    const ok = await apiAction(
-      () =>
-        apiPost('/overhauls', {
-          bikeId: b.id,
-          startDate: newOverhaulDate.value,
-          endDate: newOverhaulEndDate.value || null,
-          title: newOverhaulTitle.value,
-          detail: newOverhaulDetail.value,
-          shopId: b.shopId,
-          receptionistId: person.id,
-        }),
-      'オーバーホール予定を登録しました。実施完了までは契約回数を消費しません。'
-    );
-    if (ok) showOverhaulModal.value = false;
-  }
-  async function addMaintenance() {
-    if (bikeLabel(newWorkBike.value) !== maintenanceBikeSearch.value) {
-      notice.value = '顧客・自転車は候補から選択してください。';
-      return;
-    }
-    const b = bikes.value.find((x) => x.id === newWorkBike.value);
-    if (!b) return;
-    if (scheduleRemaining(b, 'maintenance') <= 0) {
-      notice.value = `${b.maker} ${b.model} のメンテナンスは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`;
-      return;
-    }
-    if (newWorkEndDate.value && newWorkEndDate.value < newWorkDate.value) {
-      notice.value = '完了予定日は開始予定日以降にしてください。';
-      return;
-    }
-    const person =
-      staff.value.find((x) => x.shopId === b.shopId && x.name === b.receptionist) ??
-      staff.value.find((x) => x.shopId === b.shopId);
-    if (!person) {
-      notice.value = '受付担当者を確認してください。';
-      return;
-    }
-    if (USE_MOCK_DATA) {
-      maintenance.value.unshift({
-        id: Math.max(0, ...maintenance.value.map((x) => x.id)) + 1,
-        bikeId: b.id,
-        date: dateSlash(newWorkDate.value),
-        endDate: newWorkEndDate.value ? dateSlash(newWorkEndDate.value) : undefined,
-        status: '予定',
-        title: newWorkTitle.value,
-        detail: newWorkDetail.value,
-        shopId: b.shopId,
-        receptionist: person.name,
-      });
-      showMaintenanceModal.value = false;
-      notice.value = 'メンテナンス計画をVueモックデータに登録しました。';
-      return;
-    }
-    const ok = await apiAction(
-      () =>
-        apiPost('/maintenance', {
-          bikeId: b.id,
-          startDate: newWorkDate.value,
-          endDate: newWorkEndDate.value || null,
-          title: newWorkTitle.value,
-          detail: newWorkDetail.value,
-          shopId: b.shopId,
-          receptionistId: person.id,
-        }),
-      'メンテナンス計画を追加しました。実施完了までは回数を消費しません。'
-    );
-    if (ok) showMaintenanceModal.value = false;
-  }
-  async function addEvent() {
-    if (bikeLabel(newEventBike.value) !== eventBikeSearch.value) {
-      notice.value = '顧客・自転車は候補から選択してください。';
-      return;
-    }
-    const b = bikes.value.find((x) => x.id === newEventBike.value);
-    if (!b || !newEventName.value.trim()) {
-      notice.value = 'イベント名を入力してください。';
-      return;
-    }
-    if (scheduleRemaining(b, 'inspection') <= 0) {
-      notice.value = `${b.maker} ${b.model} の点検サポートは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`;
-      return;
-    }
-    if (newInspectionEndDate.value && newInspectionEndDate.value < newInspectionDate.value) {
-      notice.value = '点検完了予定日は開始予定日以降にしてください。';
-      return;
-    }
-    const person =
-      staff.value.find((x) => x.shopId === b.shopId && x.name === b.receptionist) ??
-      staff.value.find((x) => x.shopId === b.shopId);
-    if (!person) {
-      notice.value = '受付担当者を確認してください。';
-      return;
-    }
-    if (USE_MOCK_DATA) {
-      eventChecks.value.unshift({
-        id: Math.max(0, ...eventChecks.value.map((x) => x.id)) + 1,
-        bikeId: b.id,
-        name: newEventName.value,
-        eventDate: dateSlash(newEventDate.value),
-        inspectionDate: dateSlash(newInspectionDate.value),
-        endDate: newInspectionEndDate.value ? dateSlash(newInspectionEndDate.value) : undefined,
-        status: '予定',
-        memo: '目標イベントに向けた点検サポート',
-        shopId: b.shopId,
-        receptionist: person.name,
-      });
-      newEventName.value = '';
-      showEventModal.value = false;
-      notice.value = 'イベント・点検予定をVueモックデータに登録しました。';
-      return;
-    }
-    const ok = await apiAction(
-      () =>
-        apiPost('/events', {
-          bikeId: b.id,
-          name: newEventName.value,
-          eventDate: newEventDate.value,
-          inspectionStartDate: newInspectionDate.value,
-          inspectionEndDate: newInspectionEndDate.value || null,
-          memo: '目標イベントに向けた点検サポート',
-          shopId: b.shopId,
-          receptionistId: person.id,
-        }),
-      '目標イベントと点検予定を登録しました。'
-    );
-    if (ok) {
-      newEventName.value = '';
-      showEventModal.value = false;
-    }
-  }
+  const { addOverhaul, addMaintenance, addEvent } = useScheduleRegistration({
+    bikes,
+    staff,
+    overhauls,
+    maintenance,
+    eventChecks,
+    newOverhaulBike,
+    overhaulBikeSearch,
+    newOverhaulReceptionDate,
+    newOverhaulDate,
+    newOverhaulEndDate,
+    newOverhaulTitle,
+    newOverhaulDetail,
+    newWorkBike,
+    maintenanceBikeSearch,
+    newWorkDate,
+    newWorkEndDate,
+    newWorkTitle,
+    newWorkDetail,
+    newEventBike,
+    eventBikeSearch,
+    newEventName,
+    newEventDate,
+    newInspectionDate,
+    newInspectionEndDate,
+    notice,
+    showOverhaulModal,
+    showMaintenanceModal,
+    showEventModal,
+    dataSourceStatus,
+    useMockData: USE_MOCK_DATA,
+    bikeLabel,
+    scheduleRemaining,
+    apiAction: (action, success) => apiAction(action, success),
+  });
 
   function toggleRole() {
     role.value = role.value === 'staff' ? 'customer' : 'staff';
