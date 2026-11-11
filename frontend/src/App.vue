@@ -10,6 +10,8 @@
   import HistoryView from './components/history/HistoryView.vue';
   import MessagesView from './components/messages/MessagesView.vue';
   import MypageView from './components/mypage/MypageView.vue';
+  import ShopsView from './components/shops/ShopsView.vue';
+  import PlansView from './components/plans/PlansView.vue';
   import { apiGet, apiPost, apiPut } from './api';
   import type { Page, Status, Plan, Bike, Work, EventCheck, History } from './types';
   import { pageTitles } from './constants/pages';
@@ -1499,118 +1501,17 @@
           @sort="toggleListSort('dashboard', $event)"
           @open-customer="openCustomerDetail"
         />
-        <template v-else-if="page === 'shops'"
-          ><div class="page-heading">
-            <div>
-              <p class="eyebrow">MULTI-STORE MANAGEMENT</p>
-              <h1>店舗・受付担当者管理</h1>
-              <p class="sub">複数店舗と、店舗ごとの受付担当者を管理します。</p>
-            </div>
-            <div class="heading-actions">
-              <button class="outline" @click="showStaffModal = true">＋ 担当者を登録</button
-              ><button class="primary" @click="showShopModal = true">＋ 店舗を登録</button>
-            </div>
-          </div>
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>登録店舗一覧</h2>
-                <p>{{ shops.length }}店舗</p>
-              </div>
-              <input
-                class="search"
-                v-model="searchShops"
-                placeholder="店舗名・住所・電話・担当者で検索"
-              />
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>店舗名</th>
-                    <th>住所</th>
-                    <th>電話番号</th>
-                    <th>受付担当者</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="shop in shops.filter((x) =>
-                      matches(
-                        searchShops,
-                        x.name,
-                        x.address,
-                        x.phone,
-                        staff
-                          .filter((y) => y.shopId === x.id)
-                          .map((y) => y.name)
-                          .join(' ')
-                      )
-                    )"
-                    :key="shop.id"
-                  >
-                    <td>
-                      <b>{{ shop.name }}</b>
-                    </td>
-                    <td>{{ shop.address }}</td>
-                    <td>{{ shop.phone }}</td>
-                    <td>
-                      {{
-                        staff
-                          .filter((x) => x.shopId === shop.id)
-                          .map((x) => x.name)
-                          .join('、') || '未登録'
-                      }}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section></template
-        ><template v-else-if="page === 'plans'"
-          ><div class="page-heading">
-            <div>
-              <p class="eyebrow">PLAN MASTER</p>
-              <h1>プラン設定</h1>
-              <p class="sub">
-                プランごとにオーバーホール・メンテナンス・点検サポートの回数を別々に設定します。
-              </p>
-            </div>
-            <button class="primary" @click="showPlanModal = true">＋ プランを追加</button>
-          </div>
-          <div class="callout">
-            <b>回数枠はそれぞれ独立</b>
-            <p>
-              メンテナンスを実施しても点検サポートの回数は減りません。契約終了時の残回数は失効し、翌年度への繰越はありません。
-            </p>
-          </div>
-          <div class="section-grid">
-            <section v-for="p in plans" :key="p.id" class="panel">
-              <div class="panel-head">
-                <div>
-                  <h2>{{ p.name }}</h2>
-                  <p>年間契約プラン</p>
-                </div>
-                <span class="status success">有効</span>
-              </div>
-              <div class="detail-grid">
-                <div>
-                  <label>オーバーホール</label><b class="large">{{ p.overhaulCount }}回</b>
-                </div>
-                <div>
-                  <label>メンテナンス</label><b class="large">{{ p.maintenanceCount }}回</b>
-                </div>
-                <div>
-                  <label>点検サポート</label><b class="large">{{ p.inspectionCount }}回</b>
-                </div>
-              </div>
-            </section>
-          </div>
-          <div class="panel-foot">
-            ※
-            追加したプランは年間契約登録時のプラン選択肢に反映されます。既存契約のプラン内容は、新しいプランを追加しても変更されません。
-          </div></template
-        ><template v-else-if="page === 'bikes'">
+        <ShopsView
+          v-if="page === 'shops'"
+          :shops="shops"
+          :staff="staff"
+          :search-text="searchShops"
+          @update:search-text="searchShops = $event"
+          @add-shop="showShopModal = true"
+          @add-staff="showStaffModal = true"
+        />
+        <PlansView v-else-if="page === 'plans'" :plans="plans" @add-plan="showPlanModal = true" />
+        <template v-else-if="page === 'bikes'">
           <BikeContractsView
             :customers-count="customers.length"
             :bikes-count="bikes.length"
