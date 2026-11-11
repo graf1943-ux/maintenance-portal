@@ -9,6 +9,7 @@
   import EventInspectionView from './components/events/EventInspectionView.vue';
   import HistoryView from './components/history/HistoryView.vue';
   import MessagesView from './components/messages/MessagesView.vue';
+  import MypageView from './components/mypage/MypageView.vue';
   import { apiGet, apiPost, apiPut } from './api';
   import type { Page, Status, Plan, Bike, Work, EventCheck, History } from './types';
   import { pageTitles } from './constants/pages';
@@ -743,6 +744,62 @@
     ).slice(0, 7)
   );
   const customerBikes = computed(() => bikes.value.filter((b) => b.customer === '山田 太郎'));
+  const customerPortalName = '山田 太郎';
+  const mypageBikeCards = computed(() =>
+    customerBikes.value
+      .filter((bike) => matches(searchMyPage.value, bike.model, bike.maker, planFor(bike).name))
+      .map((bike) => ({
+        bike,
+        plan: planFor(bike),
+        remaining: {
+          overhaul: remaining(bike, 'overhaul'),
+          maintenance: remaining(bike, 'maintenance'),
+          inspection: remaining(bike, 'inspection'),
+        },
+      }))
+  );
+  const mypageScheduleRows = computed(() => {
+    const customerBikeIds = new Set(customerBikes.value.map((bike) => bike.id));
+    const rows = [
+      ...maintenance.value
+        .filter((item) => customerBikeIds.has(item.bikeId))
+        .map((item) => ({
+          id: `maintenance-${item.id}`,
+          bikeId: item.bikeId,
+          date: item.date,
+          endDate: item.endDate,
+          status: item.status,
+          title: item.title,
+          kind: 'メンテナンス',
+        })),
+      ...eventChecks.value
+        .filter((item) => customerBikeIds.has(item.bikeId))
+        .map((item) => ({
+          id: `inspection-${item.id}`,
+          bikeId: item.bikeId,
+          date: item.inspectionDate,
+          endDate: item.endDate,
+          status: item.status,
+          title: item.name,
+          kind: '点検サポート',
+        })),
+    ];
+    return sortByDate(
+      rows.map((item) => {
+        const bike = bikes.value.find((candidate) => candidate.id === item.bikeId);
+        return {
+          ...item,
+          bikeMaker: bike?.maker ?? '',
+          bikeModel: bike?.model ?? '',
+          customer: bike?.customer ?? '',
+        };
+      }),
+      'mypage',
+      (item) => item.date,
+      (item) => item.customer,
+      (item) => item.status
+    );
+  });
   const bikeCountForCustomer = (name: string) =>
     bikes.value.filter((b) => b.customer === name).length;
   const bikeContractRows = computed(() =>
@@ -1666,115 +1723,18 @@
           />
         </template>
 
-        <template v-else
-          ><div class="page-heading">
-            <div>
-              <p class="eyebrow">CUSTOMER PORTAL</p>
-              <h1>マイページ</h1>
-              <p class="sub">ご登録のロードバイクと年間プランをご確認いただけます。</p>
-            </div>
-            <span class="customer-welcome">山田 太郎 様</span>
-          </div>
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>ご契約中のロードバイク</h2>
-                <p>山田 太郎 様 · {{ customerBikes.length }}台をご契約中</p>
-              </div>
-              <input
-                class="search"
-                v-model="searchMyPage"
-                placeholder="自転車・プランで検索"
-              /><span class="status success">契約中</span>
-            </div>
-            <div
-              v-for="b in customerBikes.filter((x) =>
-                matches(searchMyPage, x.model, x.maker, x.model, planFor(x).name)
-              )"
-              :key="b.id"
-              class="customer-bike"
-            >
-              <div class="bike-symbol">🚴</div>
-              <div class="equipment-details">
-                <b>{{ b.maker }} {{ b.model }}</b
-                ><small
-                  >{{ planFor(b).name }} · 契約期間 {{ b.contractStart }}〜{{
-                    b.contractEnd
-                  }}</small
-                ><small>オーバーホール残 {{ remaining(b, 'overhaul') }}回</small
-                ><small
-                  >メンテナンス残 {{ remaining(b, 'maintenance') }} /
-                  {{ planFor(b).maintenanceCount }}回</small
-                ><small
-                  >点検サポート残 {{ remaining(b, 'inspection') }} /
-                  {{ planFor(b).inspectionCount }}回</small
-                >
-              </div>
-            </div>
-          </section>
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>メンテナンス・点検予定</h2>
-                <p>目標イベントに合わせたサポート予定</p>
-              </div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>対象自転車</th>
-                    <th>作業区分</th>
-                    <th>内容</th>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('mypage', 'date')">
-                        開始日 {{ sortLabel('mypage', 'date') }} / 完了日
-                      </button>
-                    </th>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('mypage', 'status')">
-                        状態 {{ sortLabel('mypage', 'status') }}
-                      </button>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="w in sortByDate(
-                      [
-                        ...maintenance.filter((x) => customerBikes.some((b) => b.id === x.bikeId)),
-                        ...eventChecks
-                          .filter((x) => customerBikes.some((b) => b.id === x.bikeId))
-                          .map((x) => ({
-                            ...x,
-                            date: x.inspectionDate,
-                            title: x.name,
-                            kind: '点検サポート',
-                          })),
-                      ],
-                      'mypage',
-                      (x) => x.date,
-                      (x) => bikes.find((b) => b.id === x.bikeId)?.customer || '',
-                      (x) => x.status
-                    )"
-                    :key="w.id"
-                  >
-                    <td>
-                      <b
-                        >{{ bikes.find((b) => b.id === w.bikeId)?.maker }}
-                        {{ bikes.find((b) => b.id === w.bikeId)?.model }}</b
-                      >
-                    </td>
-                    <td>{{ 'kind' in w ? w.kind : 'メンテナンス' }}</td>
-                    <td>{{ w.title }}</td>
-                    <td>{{ w.date }}〜{{ w.endDate || '未定' }}</td>
-                    <td>{{ w.status }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section></template
-        >
+        <template v-else>
+          <MypageView
+            :customer-name="customerPortalName"
+            :bike-cards="mypageBikeCards"
+            :schedule-rows="mypageScheduleRows"
+            :search-text="searchMyPage"
+            :date-sort-label="sortLabel('mypage', 'date')"
+            :status-sort-label="sortLabel('mypage', 'status')"
+            @update:search-text="searchMyPage = $event"
+            @sort="toggleListSort('mypage', $event)"
+          />
+        </template>
       </div>
     </main>
   </div>
