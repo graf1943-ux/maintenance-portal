@@ -23,6 +23,8 @@ dist-ssr/
 .env
 .env.*
 !.env.example
+!.env.api.example
+!.env.mock.example
 !.env.sample
 
 # Package manager logs

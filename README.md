@@ -4,17 +4,18 @@
 
 ## 構成
 
-- `src/` : Vue 3 + TypeScript + Vite のフロントエンド
-- `backend/RoadbikeCare.Api/` : ASP.NET Core 8 Web API
+- `frontend/` : Vue 3 + TypeScript + Vite のフロントエンド
+- `backend/RoadbikeCare.Api/` : ASP.NET Core 10 Web API
+
 - APIデータ : 起動時にサンプルデータをメモリへロードするインメモリ実装
 
-Vue画面は `.env` の `VITE_USE_MOCK_DATA` でデータ取得元を切り替えます。`true` の場合はVue内のモックデータを表示しAPI通信を行いません。`false` の場合はAPIのみを使用し、接続に失敗してもVueモックへ自動切替しません。画面上部に現在のデータ取得元を表示します。APIモードでは起動時にAPIから各データを取得し、登録・予定変更・作業開始・完了処理もAPI経由で実行します。
+Vue画面は `frontend/.env` の `VITE_USE_MOCK_DATA` でデータ取得元を切り替えます。`true` の場合はVue内のモックデータを表示しAPI通信を行いません。`false` の場合はAPIのみを使用し、接続に失敗してもVueモックへ自動切替しません。画面上部に現在のデータ取得元を表示します。APIモードでは起動時にAPIから各データを取得し、登録・予定変更・作業開始・完了処理もAPI経由で実行します。
 
 ## 起動方法
 
 ### 1. API
 
-.NET 8 SDKをインストールしたうえで、プロジェクトルートから実行します。
+.NET 10 SDKをインストールしたうえで、プロジェクトルートから実行します。
 
 ```powershell
 cd backend/RoadbikeCare.Api
@@ -29,10 +30,11 @@ APIは `http://localhost:5080` で起動します。
 
 ### 2. フロントエンド
 
-別のターミナルでプロジェクトルートに戻り、実行します。
+別のターミナルで `frontend` フォルダに移動して実行します。
 
 ```powershell
-npm install
+cd frontend
+npm ci
 npm run dev
 ```
 
@@ -165,7 +167,7 @@ Invoke-RestMethod http://localhost:5080/api/maintenance
 
 ## フロントエンドの環境設定
 
-ローカル開発では設定不要です。Viteが `/api` を `http://localhost:5080` に転送します。フロントエンドとAPIを別ホストへ配置する場合は、`.env` に `VITE_API_BASE_URL` を設定し、APIのCORS許可オリジンも配置先に合わせて変更してください。
+ローカル開発では設定不要です。`frontend/vite.config.ts` のViteが `/api` を `http://localhost:5080` に転送します。フロントエンドとAPIを別ホストへ配置する場合は、`frontend/.env` に `VITE_API_BASE_URL` を設定し、APIのCORS許可オリジンも配置先に合わせて変更してください。
 
 ## PostgreSQL移行時の方針
 
@@ -174,7 +176,7 @@ APIのルート定義と業務処理を分離し、`MockDataStore` を Repositor
 
 ## データ取得元の切り替え
 
-プロジェクトルートの `.env` を作成し、次のいずれかを設定してください。設定変更後は `npm run dev` を再起動してください。
+`frontend` フォルダ内に `.env` を作成し、次のいずれかを設定してください。設定変更後は `npm run dev` を再起動してください。
 
 ### Vueモックデータを使用
 
@@ -192,7 +194,7 @@ VITE_USE_MOCK_DATA=false
 
 バックエンドAPIから取得したデータだけを表示します。API接続に失敗した場合はエラーを表示し、Vueモックデータへフォールバックしません。
 
-PowerShellでは `Copy-Item .env.mock.example .env` または `Copy-Item .env.api.example .env` で切り替えられます。設定を変更したらViteを再起動してください。
+PowerShellでは、プロジェクトルートから `cd frontend` で移動した後、`Copy-Item .env.mock.example .env` または `Copy-Item .env.api.example .env` で切り替えられます。設定を変更したらViteを再起動してください。
 
 ## 顧客詳細からの作業登録
 
@@ -208,3 +210,21 @@ Vueモックデータモードでは、オーバーホール・メンテナン�
 - 完了・キャンセル以外の登録済み予定回数（予定枠として確保中の回数）
 
 予定の登録だけでは契約の消費回数は増えません。作業完了時に予定枠から実績へ移り、契約回数を1回消費します。キャンセルされた予定は新規登録枠を解放します。フロントエンドだけでなくAPI側でも上限を検証します。
+
+
+## コード整形
+
+フロントエンドの整形は `frontend` フォルダで実行します。
+
+```powershell
+cd frontend
+npm run format
+npm run format:check
+```
+
+バックエンドの整形は `frontend` フォルダから次のスクリプトで実行できます（ルートから実行する場合は `dotnet format backend/RoadbikeCare.Api/RoadbikeCare.Api.csproj`）。
+
+```powershell
+npm run format:backend
+npm run format:backend:check
+```
