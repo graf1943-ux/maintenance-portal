@@ -5,6 +5,7 @@
   import DashboardView from './components/dashboard/DashboardView.vue';
   import BikeContractsView from './components/bikes/BikeContractsView.vue';
   import OverhaulView from './components/overhaul/OverhaulView.vue';
+  import MaintenanceView from './components/maintenance/MaintenanceView.vue';
   import { apiGet, apiPost, apiPut } from './api';
   import type { Page, Status, Plan, Bike, Work, EventCheck, History } from './types';
   import { pageTitles } from './constants/pages';
@@ -758,6 +759,51 @@
   const overhaulBikeFilterCount = computed(
     () => overhauls.value.filter((work) => matchesBikeFilter(work.bikeId)).length
   );
+  const maintenanceRows = computed(() =>
+    sortByDate(
+      maintenance.value
+        .filter((work) => {
+          const bike = bikes.value.find((item) => item.id === work.bikeId);
+          return (
+            matchesBikeFilter(work.bikeId) &&
+            matches(
+              searchMaintenance.value,
+              bike?.customer,
+              bike?.model,
+              bike?.maker,
+              bike?.model,
+              work.date,
+              work.status,
+              work.title,
+              work.detail,
+              shops.value.find((shop) => shop.id === work.shopId)?.name,
+              work.receptionist
+            )
+          );
+        })
+        .map((work) => {
+          const bike = bikes.value.find((item) => item.id === work.bikeId)!;
+          return {
+            work,
+            bike,
+            remaining: scheduleRemaining(bike, 'maintenance'),
+            shopName: shops.value.find((shop) => shop.id === work.shopId)?.name ?? '',
+          };
+        }),
+      'maintenance',
+      (row) => row.work.date,
+      (row) => row.bike.customer,
+      (row) => row.work.status
+    )
+  );
+  const maintenanceBikeFilterCount = computed(
+    () => maintenance.value.filter((work) => matchesBikeFilter(work.bikeId)).length
+  );
+  function updateMaintenanceStatus(work: Work, status: Status) {
+    const target = maintenance.value.find((item) => item.id === work.id);
+    if (target) target.status = status;
+  }
+
   function setPage(p: Page) {
     page.value = p;
     notice.value = '';
@@ -1445,182 +1491,29 @@
           />
         </template>
 
-        <template v-else-if="page === 'maintenance'"
-          ><div class="page-heading">
-            <div>
-              <p class="eyebrow">MAINTENANCE PLANNING</p>
-              <h1>メンテナンス計画</h1>
-              <p class="sub">顧客の目標イベントに合わせてスタッフが実施計画を作成します。</p>
-            </div>
-          </div>
-          <div class="callout">
-            <b>固定周期ではなく、目標イベントに合わせた計画</b>
-            <p>
-              2か月おきの自動生成は行いません。メインイベントの日程・目標・車体の状態を踏まえて必要なタイミングで計画します。実施完了時のみメンテナンス回数を消費します。
-            </p>
-          </div>
-          <div class="list-toolbar">
-            <span class="muted">顧客詳細から登録した計画の一覧です。</span>
-          </div>
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>メンテナンス計画一覧</h2>
-                <p>予定・案内・予約は回数を消費しません</p>
-              </div>
-              <div class="list-name-filters">
-                <input
-                  class="search"
-                  v-model="customerFilterText"
-                  placeholder="顧客名で検索"
-                /><input
-                  class="search"
-                  v-model="bikeFilterText"
-                  placeholder="自転車名・メーカーで検索"
-                /><button
-                  v-if="customerFilterText || bikeFilterText || selectedBikeFilter"
-                  class="outline small"
-                  @click="clearBikeNameFilters"
-                >
-                  条件クリア
-                </button>
-              </div>
-              <input
-                class="search"
-                v-model="searchMaintenance"
-                placeholder="計画名・作業内容・店舗・担当者で検索"
-              /><span class="count"
-                >{{ maintenance.filter((x) => matchesBikeFilter(x.bikeId)).length }}件</span
-              >
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>
-                      <button
-                        class="sort-header"
-                        @click="toggleListSort('maintenance', 'customer')"
-                      >
-                        顧客 {{ sortLabel('maintenance', 'customer') }}
-                      </button>
-                    </th>
-                    <th>自転車</th>
-                    <th>計画・作業内容</th>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('maintenance', 'date')">
-                        開始日 {{ sortLabel('maintenance', 'date') }}
-                      </button>
-                      / 完了日
-                    </th>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('maintenance', 'status')">
-                        状態 {{ sortLabel('maintenance', 'status') }}
-                      </button>
-                    </th>
-                    <th>新規登録可能枠</th>
-                    <th>受付担当</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="w in sortByDate(
-                      maintenance.filter((x) => {
-                        const b = bikes.find((y) => y.id === x.bikeId);
-                        return (
-                          matchesBikeFilter(x.bikeId) &&
-                          matches(
-                            searchMaintenance,
-                            b?.customer,
-                            b?.model,
-                            b?.maker,
-                            b?.model,
-                            x.date,
-                            x.status,
-                            x.title,
-                            x.detail,
-                            shops.find((sh) => sh.id === x.shopId)?.name,
-                            x.receptionist
-                          )
-                        );
-                      }),
-                      'maintenance',
-                      (x) => x.date,
-                      (x) => bikes.find((b) => b.id === x.bikeId)?.customer || '',
-                      (x) => x.status
-                    )"
-                    :key="w.id"
-                  >
-                    <td>
-                      <button
-                        class="customer-link"
-                        @click="
-                          openCustomerDetail(bikes.find((b) => b.id === w.bikeId)?.customer || '')
-                        "
-                      >
-                        {{ bikes.find((b) => b.id === w.bikeId)?.customer }}
-                      </button>
-                    </td>
-                    <td>{{ bikes.find((b) => b.id === w.bikeId)?.model }}</td>
-                    <td>
-                      <b>{{ w.title }}</b><small class="cell-sub">{{ w.detail }}</small>
-                    </td>
-                    <td>
-                      <b>{{ w.date }}</b><small class="cell-sub"
-                        >〜 {{ w.endDate || '未定' }}</small
-                      >
-                    </td>
-                    <td>
-                      <select v-if="w.status !== '完了'" class="status-select" v-model="w.status">
-                        <option>予定</option>
-                        <option>案内待ち</option>
-                        <option>案内済み</option>
-                        <option>予約済み</option>
-                        <option>作業中</option>
-                        <option>キャンセル</option></select
-                      ><span v-else class="done">✓ 完了</span>
-                    </td>
-                    <td>
-                      {{
-                        scheduleRemaining(
-                          bikes.find((b) => b.id === w.bikeId)!,
-                          'maintenance'
-                        )
-                      }}回
-                    </td>
-                    <td>{{ shops.find((x) => x.id === w.shopId)?.name }} / {{ w.receptionist }}</td>
-                    <td>
-                      <button
-                        v-if="w.status !== '完了'"
-                        class="outline small"
-                        @click="openEdit('maintenance', w)"
-                      >
-                        編集
-                      </button>
-                      <button
-                        v-if="
-                          w.status === '予定' || w.status === '予約済み' || w.status === '案内済み'
-                        "
-                        class="outline small"
-                        @click="startWork('maintenance', w)"
-                      >
-                        作業開始
-                      </button>
-                      <button
-                        v-if="w.status === '作業中'"
-                        class="primary small"
-                        @click="startCompletion('maintenance', w)"
-                      >
-                        完了登録</button
-                      ><span v-if="w.status === '完了'" class="done">✓ 完了</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section></template
-        >
+        <template v-else-if="page === 'maintenance'">
+          <MaintenanceView
+            :rows="maintenanceRows"
+            :count="maintenanceBikeFilterCount"
+            :customer-filter-text="customerFilterText"
+            :bike-filter-text="bikeFilterText"
+            :selected-bike-filter="selectedBikeFilter"
+            :search-text="searchMaintenance"
+            :customer-sort-label="sortLabel('maintenance', 'customer')"
+            :date-sort-label="sortLabel('maintenance', 'date')"
+            :status-sort-label="sortLabel('maintenance', 'status')"
+            @update:customer-filter-text="customerFilterText = $event"
+            @update:bike-filter-text="bikeFilterText = $event"
+            @update:search-text="searchMaintenance = $event"
+            @clear-filters="clearBikeNameFilters"
+            @sort="toggleListSort('maintenance', $event)"
+            @open-customer="openCustomerDetail"
+            @status-change="updateMaintenanceStatus"
+            @edit="openEdit('maintenance', $event)"
+            @start-work="startWork('maintenance', $event)"
+            @complete="startCompletion('maintenance', $event)"
+          />
+        </template>
 
         <template v-else-if="page === 'events'"
           ><div class="page-heading">

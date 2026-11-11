@@ -115,7 +115,8 @@
             </td>
             <td>{{ row.bike.model }}</td>
             <td>
-              <b>{{ row.work.title }}</b><small class="cell-sub">{{ row.work.detail }}</small>
+              <b>{{ row.work.title }}</b
+              ><small class="cell-sub">{{ row.work.detail }}</small>
             </td>
             <td>
               {{ row.work.date }}<small class="cell-sub">〜 {{ row.work.endDate || '未定' }}</small>
