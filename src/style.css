@@ -31,3 +31,15 @@
 .list-name-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:min(100%,420px)}
 .list-name-filters .search{min-width:150px;flex:1 1 160px}
 @media(max-width:700px){.list-name-filters{width:100%;min-width:0}.list-name-filters .search{flex:1 1 100%;width:100%}}
+
+
+/* Data source indicator */
+.data-source-indicator{display:flex;align-items:center;gap:10px;padding:9px 14px;margin-bottom:12px;border:1px solid;border-radius:8px;font-size:12px}
+.data-source-indicator strong{font-size:11px;letter-spacing:.06em}
+.data-source-indicator span{opacity:.85}
+.data-source-indicator.mock{color:#8a5a00;background:#fff8e6;border-color:#e8c46a}
+.data-source-indicator.api{color:#176b45;background:#eaf7f0;border-color:#9bd2b4}
+.data-source-indicator.error{color:#a12626;background:#fff0f0;border-color:#e5a0a0}
+.customer-bike-register-actions{margin-top:12px}.customer-bike-register-actions button{font-size:11px}.customer-bike-register-actions button:disabled{opacity:.42;cursor:not-allowed}
+
+.customer-bike-manage-actions{margin-top:7px;padding-top:9px;border-top:1px solid #e8edf2}.customer-bike-manage-actions button{font-size:10px}

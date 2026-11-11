@@ -1,0 +1,28 @@
+@baseUrl = http://localhost:5080
+
+### Health
+GET {{baseUrl}}/api/health
+
+### Customers
+GET {{baseUrl}}/api/customers
+
+### Bikes
+GET {{baseUrl}}/api/bikes
+
+### Plans
+GET {{baseUrl}}/api/plans
+
+### Annual contracts
+GET {{baseUrl}}/api/contracts
+
+### Overhauls
+GET {{baseUrl}}/api/overhauls
+
+### Maintenance plans
+GET {{baseUrl}}/api/maintenance
+
+### Events and inspections
+GET {{baseUrl}}/api/events
+
+### Work history
+GET {{baseUrl}}/api/history
