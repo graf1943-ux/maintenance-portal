@@ -8,6 +8,7 @@
   import MaintenanceView from './components/maintenance/MaintenanceView.vue';
   import EventInspectionView from './components/events/EventInspectionView.vue';
   import HistoryView from './components/history/HistoryView.vue';
+  import MessagesView from './components/messages/MessagesView.vue';
   import { apiGet, apiPost, apiPut } from './api';
   import type { Page, Status, Plan, Bike, Work, EventCheck, History } from './types';
   import { pageTitles } from './constants/pages';
@@ -549,6 +550,44 @@
       (x) => x.date
     )
   );
+  const messageRows = computed(() =>
+    sortByDate(
+      [
+        ...maintenance.value
+          .filter((x) => x.status === '案内待ち')
+          .map((x) => ({ ...x, kind: 'メンテナンス' })),
+        ...eventChecks.value
+          .filter((x) => x.status === '案内待ち')
+          .map((x) => ({ ...x, date: x.inspectionDate, title: x.name, kind: '点検サポート' })),
+      ]
+        .filter((x) => {
+          const bike = bikes.value.find((item) => item.id === x.bikeId);
+          return matches(
+            searchMessages.value,
+            bike?.customer,
+            bike?.model,
+            x.date,
+            x.title,
+            x.kind
+          );
+        })
+        .map((x) => {
+          const bike = bikes.value.find((item) => item.id === x.bikeId);
+          return {
+            id: `${x.kind}-${x.id}`,
+            bikeId: x.bikeId,
+            customer: bike?.customer ?? '',
+            bikeModel: bike?.model ?? '',
+            kind: x.kind,
+            title: x.title,
+            date: x.date,
+          };
+        }),
+      'messages',
+      (x) => x.date,
+      (x) => x.customer
+    )
+  );
   const selectedCustomerBikes = computed(() =>
     bikes.value.filter((b) => b.customer === selectedCustomerName.value)
   );
@@ -573,6 +612,12 @@
       .filter((h) => selectedCustomerBikes.value.some((b) => b.id === h.bikeId))
       .sort((a, b) => b.date.localeCompare(a.date))
   );
+  function composeMail(payload: { customer: string; kind: string }) {
+    mailTarget.value = payload.customer || '山田 太郎';
+    mailKind.value = `${payload.kind}のご案内`;
+    showMail.value = true;
+  }
+
   function openCustomerDetail(name: string) {
     selectedCustomerName.value = name;
     showCustomerDetail.value = true;
@@ -1607,112 +1652,19 @@
           />
         </template>
 
-        <template v-else-if="page === 'messages'"
-          ><div class="page-heading">
-            <div>
-              <p class="eyebrow">COMMUNICATION</p>
-              <h1>連絡・メール管理</h1>
-              <p class="sub">イベント・メンテナンス予定に関する顧客連絡を管理します。</p>
-            </div>
-            <button class="primary" @click="showMail = true">✉ メールを作成</button>
-          </div>
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>案内待ちのメンテナンス・点検</h2>
-                <p>顧客への連絡が必要な予定</p>
-              </div>
-              <input
-                class="search"
-                v-model="searchMessages"
-                placeholder="顧客・自転車・予定日・区分で検索"
-              /><span class="status warning">{{ pendingCount }}件</span>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('messages', 'customer')">
-                        顧客 {{ sortLabel('messages', 'customer') }}
-                      </button>
-                    </th>
-                    <th>自転車</th>
-                    <th>作業区分</th>
-                    <th>予定内容</th>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('messages', 'date')">
-                        予定日 {{ sortLabel('messages', 'date') }}
-                      </button>
-                    </th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="w in sortByDate(
-                      [
-                        ...maintenance
-                          .filter((x) => x.status === '案内待ち')
-                          .map((x) => ({ ...x, kind: 'メンテナンス' })),
-                        ...eventChecks
-                          .filter((x) => x.status === '案内待ち')
-                          .map((x) => ({
-                            ...x,
-                            date: x.inspectionDate,
-                            title: x.name,
-                            kind: '点検サポート',
-                          })),
-                      ].filter((x) => {
-                        const b = bikes.find((y) => y.id === x.bikeId);
-                        return matches(
-                          searchMessages,
-                          b?.customer,
-                          b?.model,
-                          x.date,
-                          x.title,
-                          x.kind
-                        );
-                      }),
-                      'messages',
-                      (x) => x.date,
-                      (x) => bikes.find((b) => b.id === x.bikeId)?.customer || '',
-                      (x) => x.status
-                    )"
-                    :key="w.id"
-                  >
-                    <td>
-                      <button
-                        class="customer-link"
-                        @click="
-                          openCustomerDetail(bikes.find((b) => b.id === w.bikeId)?.customer || '')
-                        "
-                      >
-                        {{ bikes.find((b) => b.id === w.bikeId)?.customer }}
-                      </button>
-                    </td>
-                    <td>{{ bikes.find((b) => b.id === w.bikeId)?.model }}</td>
-                    <td>{{ w.kind }}</td>
-                    <td>{{ w.title }}</td>
-                    <td>{{ w.date }}</td>
-                    <td>
-                      <button
-                        class="outline small"
-                        @click="
-                          mailTarget = bikes.find((b) => b.id === w.bikeId)?.customer || '';
-                          mailKind = w.kind + 'のご案内';
-                          showMail = true;
-                        "
-                      >
-                        内容確認
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section></template
-        >
+        <template v-else-if="page === 'messages'">
+          <MessagesView
+            :rows="messageRows"
+            :pending-count="pendingCount"
+            :search-text="searchMessages"
+            :customer-sort-label="sortLabel('messages', 'customer')"
+            :date-sort-label="sortLabel('messages', 'date')"
+            @update:search-text="searchMessages = $event"
+            @sort="toggleListSort('messages', $event)"
+            @open-customer="openCustomerDetail"
+            @compose-mail="composeMail"
+          />
+        </template>
 
         <template v-else
           ><div class="page-heading">
