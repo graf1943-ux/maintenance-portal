@@ -1,90 +1,20 @@
 <script setup lang="ts">
   import { computed, onMounted, ref } from 'vue';
   import { apiGet, apiPost, apiPut } from './api';
+  import type { Page, Status, Plan, Bike, Work, EventCheck, History } from './types';
+  import { pageTitles } from './constants/pages';
+  import { matches, useListSort } from './utils/list';
+  import {
+    dateSlash,
+    dateIso,
+    mapBike,
+    mapWork,
+    mapEvent,
+    type ApiBike,
+  } from './services/apiMappers';
   const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true';
   const dataSourceStatus = ref<'mock' | 'api' | 'error'>(USE_MOCK_DATA ? 'mock' : 'api');
   const dataSourceLabel = USE_MOCK_DATA ? 'MOCK DATA' : 'API MODE';
-  type Page =
-    | 'dashboard'
-    | 'bikes'
-    | 'shops'
-    | 'plans'
-    | 'overhaul'
-    | 'maintenance'
-    | 'events'
-    | 'history'
-    | 'messages'
-    | 'mypage';
-  const pageTitles: Record<Page, string> = {
-    dashboard: 'ダッシュボード',
-    bikes: '顧客・自転車・契約管理',
-    shops: '店舗・担当者管理',
-    plans: 'プラン設定',
-    overhaul: 'オーバーホール',
-    maintenance: 'メンテナンス計画',
-    events: '目標イベント・点検',
-    history: 'メンテナンス履歴',
-    messages: '連絡・メール管理',
-    mypage: 'マイページ',
-  };
-  type Status = '予定' | '案内待ち' | '案内済み' | '予約済み' | '作業中' | '完了' | 'キャンセル';
-  type Plan = {
-    id: number;
-    name: string;
-    overhaulCount: number;
-    maintenanceCount: number;
-    inspectionCount: number;
-  };
-  type Bike = {
-    id: number;
-    customer: string;
-    maker: string;
-    model: string;
-    year: number;
-    serial: string;
-    planId: number;
-    contractStart: string;
-    contractEnd: string;
-    overhaulUsed: number;
-    maintenanceUsed: number;
-    inspectionUsed: number;
-    overhaulCompleted: string;
-    shopId: number;
-    receptionist: string;
-  };
-  type Work = {
-    id: number;
-    bikeId: number;
-    date: string;
-    endDate?: string;
-    status: Status;
-    title: string;
-    detail: string;
-    shopId: number;
-    receptionist: string;
-  };
-  type EventCheck = {
-    id: number;
-    bikeId: number;
-    name: string;
-    eventDate: string;
-    inspectionDate: string;
-    endDate?: string;
-    status: Status;
-    memo: string;
-    shopId: number;
-    receptionist: string;
-  };
-  type History = {
-    id: number;
-    bikeId: number;
-    date: string;
-    startDate?: string;
-    category: string;
-    title: string;
-    detail: string;
-    memo?: string;
-  };
   const page = ref<Page>('dashboard'),
     role = ref<'staff' | 'customer'>('staff'),
     selectedBikeId = ref(1),
@@ -116,65 +46,22 @@
     searchHistory = ref(''),
     searchMessages = ref(''),
     searchMyPage = ref('');
-  function matches(query: string, ...values: unknown[]) {
-    const q = query.trim().toLocaleLowerCase();
-    return (
-      !q ||
-      values.some((v) =>
-        String(v ?? '')
-          .toLocaleLowerCase()
-          .includes(q)
-      )
-    );
-  }
   function matchesBikeFilter(bikeId: number) {
-    const bike = bikes.value.find((b) => b.id === bikeId);
+    const bike = bikes.value.find((item) => item.id === bikeId);
     return (
       (!selectedBikeFilter.value || bikeId === selectedBikeFilter.value) &&
       matches(customerFilterText.value, bike?.customer) &&
       matches(bikeFilterText.value, bike?.maker, bike?.model, bike?.serial)
     );
   }
+
   function clearBikeNameFilters() {
     customerFilterText.value = '';
     bikeFilterText.value = '';
     selectedBikeFilter.value = null;
   }
-  // 一覧ごとに日付・顧客名・状態を昇順／降順で並び替えます。初期表示は日付昇順です。
-  type SortField = 'date' | 'customer' | 'status';
-  type SortDirection = 'asc' | 'desc';
-  const listSort = ref<Record<string, { field: SortField; direction: SortDirection }>>({});
-  function toggleListSort(key: string, field: SortField) {
-    const current = listSort.value[key];
-    listSort.value[key] =
-      current?.field === field
-        ? { field, direction: current.direction === 'asc' ? 'desc' : 'asc' }
-        : { field, direction: 'asc' };
-  }
-  function sortByDate<T>(
-    items: T[],
-    key: string,
-    getDate: (item: T) => string,
-    getCustomer?: (item: T) => string,
-    getStatus?: (item: T) => string
-  ) {
-    const sort = listSort.value[key] ?? {
-      field: 'date' as SortField,
-      direction: 'asc' as SortDirection,
-    };
-    const getter =
-      sort.field === 'customer' ? getCustomer : sort.field === 'status' ? getStatus : getDate;
-    const direction = sort.direction;
-    return [...items].sort((a, b) => {
-      const result = (getter?.(a) ?? '').localeCompare(getter?.(b) ?? '', 'ja', { numeric: true });
-      return direction === 'asc' ? result : -result;
-    });
-  }
-  function sortLabel(key: string, field: SortField) {
-    const sort = listSort.value[key];
-    if (sort?.field !== field) return '↕';
-    return sort.direction === 'desc' ? '▼' : '▲';
-  }
+
+  const { toggleListSort, sortByDate, sortLabel } = useListSort();
   const shops = ref<{ id: number; name: string; address: string; phone: string }[]>([
     { id: 1, name: '金沢本店', address: '石川県金沢市', phone: '076-000-0001' },
     { id: 2, name: '富山店', address: '富山県富山市', phone: '076-000-0002' },
@@ -517,72 +404,7 @@
       memo: '左右パッドクリアランスを再確認',
     },
   ]);
-  type ApiBike = {
-    id: number;
-    customerId: number;
-    customer: string;
-    maker: string;
-    model: string;
-    year: number;
-    serial: string;
-    contractStart?: string | null;
-    contractEnd?: string | null;
-    overhaulUsed: number;
-    maintenanceUsed: number;
-    inspectionUsed: number;
-    plan?: Plan | null;
-    shopId?: number | null;
-    receptionistId?: number | null;
-  };
-  const dateSlash = (v?: string | null) => (v ? String(v).slice(0, 10).replace(/-/g, '/') : '');
-  const dateIso = (v?: string | null) => (v ? String(v).slice(0, 10).replace(/\//g, '-') : '');
   const receptionistName = (id: number) => staff.value.find((x) => x.id === id)?.name ?? '';
-  function mapBike(x: ApiBike): Bike {
-    return {
-      id: x.id,
-      customer: x.customer,
-      maker: x.maker,
-      model: x.model,
-      year: x.year,
-      serial: x.serial,
-      planId: x.plan?.id ?? 1,
-      contractStart: dateSlash(x.contractStart),
-      contractEnd: dateSlash(x.contractEnd),
-      overhaulUsed: x.overhaulUsed,
-      maintenanceUsed: x.maintenanceUsed,
-      inspectionUsed: x.inspectionUsed,
-      overhaulCompleted: '',
-      shopId: x.shopId ?? 1,
-      receptionist: receptionistName(x.receptionistId ?? 0),
-    };
-  }
-  function mapWork(x: any): Work {
-    return {
-      id: x.id,
-      bikeId: x.bikeId,
-      date: dateSlash(x.startDate),
-      endDate: dateSlash(x.endDate),
-      status: x.status as Status,
-      title: x.title,
-      detail: x.detail,
-      shopId: x.shopId,
-      receptionist: x.receptionist ?? receptionistName(x.receptionistId),
-    };
-  }
-  function mapEvent(x: any): EventCheck {
-    return {
-      id: x.id,
-      bikeId: x.bikeId,
-      name: x.name,
-      eventDate: dateSlash(x.eventDate),
-      inspectionDate: dateSlash(x.inspectionStartDate),
-      endDate: dateSlash(x.inspectionEndDate),
-      status: x.status,
-      memo: x.memo,
-      shopId: x.shopId,
-      receptionist: receptionistName(x.receptionistId),
-    };
-  }
   async function reloadData() {
     if (USE_MOCK_DATA) return;
     const [c, sh, st, pl, b, oh, ma, ev, hi] = await Promise.all([
@@ -600,10 +422,10 @@
     shops.value = sh;
     staff.value = st;
     plans.value = pl;
-    bikes.value = b.map(mapBike);
-    overhauls.value = oh.map(mapWork);
-    maintenance.value = ma.map(mapWork);
-    eventChecks.value = ev.map(mapEvent);
+    bikes.value = b.map((item) => mapBike(item, receptionistName));
+    overhauls.value = oh.map((item) => mapWork(item, receptionistName));
+    maintenance.value = ma.map((item) => mapWork(item, receptionistName));
+    eventChecks.value = ev.map((item) => mapEvent(item, receptionistName));
     histories.value = hi.map((x: any) => ({
       id: x.id,
       bikeId: x.bikeId,
