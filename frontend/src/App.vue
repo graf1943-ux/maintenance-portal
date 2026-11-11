@@ -7,6 +7,7 @@
   import OverhaulView from './components/overhaul/OverhaulView.vue';
   import MaintenanceView from './components/maintenance/MaintenanceView.vue';
   import EventInspectionView from './components/events/EventInspectionView.vue';
+  import HistoryView from './components/history/HistoryView.vue';
   import { apiGet, apiPost, apiPut } from './api';
   import type { Page, Status, Plan, Bike, Work, EventCheck, History } from './types';
   import { pageTitles } from './constants/pages';
@@ -536,6 +537,17 @@
         shopId: 0,
         receptionist: '',
       } as Bike)
+  );
+  const historyRows = computed(() =>
+    sortByDate(
+      histories.value.filter(
+        (x) =>
+          x.bikeId === selectedBikeId.value &&
+          matches(searchHistory.value, x.date, x.category, x.title, x.detail, x.memo)
+      ),
+      'history',
+      (x) => x.date
+    )
   );
   const selectedCustomerBikes = computed(() =>
     bikes.value.filter((b) => b.customer === selectedCustomerName.value)
@@ -1580,77 +1592,20 @@
           />
         </template>
 
-        <template v-else-if="page === 'history'"
-          ><div class="page-heading">
-            <div>
-              <p class="eyebrow">SERVICE HISTORY</p>
-              <h1>メンテナンス履歴</h1>
-              <p class="sub">自転車ごとのオーバーホール・メンテナンス・点検サポートの履歴です。</p>
-            </div>
-            <select class="search" v-model.number="selectedBikeId">
-              <option v-for="b in bikes" :key="b.id" :value="b.id">
-                {{ b.customer }} / {{ b.model }}
-              </option>
-            </select>
-          </div>
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>{{ selectedBike.maker }} {{ selectedBike.model }}</h2>
-                <p>{{ selectedBike.customer }} 様の作業履歴</p>
-              </div>
-              <input
-                class="search"
-                v-model="searchHistory"
-                placeholder="作業区分・作業名・詳細で検索"
-              /><span class="count"
-                >{{ histories.filter((h) => h.bikeId === selectedBikeId).length }}件</span
-              >
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>
-                      <button class="sort-header" @click="toggleListSort('history', 'date')">
-                        開始日 {{ sortLabel('history', 'date') }} / 完了日
-                        {{ sortLabel('history', 'date') }}
-                      </button>
-                    </th>
-                    <th>作業区分</th>
-                    <th>作業内容</th>
-                    <th>作業時のメモ</th>
-                    <th>詳細</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="h in sortByDate(
-                      histories.filter(
-                        (x) =>
-                          x.bikeId === selectedBikeId &&
-                          matches(searchHistory, x.date, x.category, x.title, x.detail, x.memo)
-                      ),
-                      'history',
-                      (x) => x.date
-                    )"
-                    :key="h.id"
-                  >
-                    <td>
-                      <b>{{ h.startDate || h.date }}</b><small class="cell-sub"
-                        >〜 {{ h.date }}</small
-                      >
-                    </td>
-                    <td>{{ h.category }}</td>
-                    <td>{{ h.title }}</td>
-                    <td class="memo-cell">{{ h.memo || '—' }}</td>
-                    <td>{{ h.detail }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section></template
-        >
+        <template v-else-if="page === 'history'">
+          <HistoryView
+            :bikes="bikes"
+            :selected-bike-id="selectedBikeId"
+            :selected-bike="selectedBike"
+            :rows="historyRows"
+            :count="histories.filter((h) => h.bikeId === selectedBikeId).length"
+            :search-text="searchHistory"
+            :date-sort-label="sortLabel('history', 'date')"
+            @update:selected-bike-id="selectedBikeId = $event"
+            @update:search-text="searchHistory = $event"
+            @sort="toggleListSort('history', 'date')"
+          />
+        </template>
 
         <template v-else-if="page === 'messages'"
           ><div class="page-heading">
