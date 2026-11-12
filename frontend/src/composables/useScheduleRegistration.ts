@@ -1,11 +1,11 @@
-import type { Ref } from 'vue';
+import type { ComputedRef, Ref } from 'vue';
 import { apiPost } from '../api';
 import type { Bike, EventCheck, Work } from '../types';
 import { dateSlash } from '../services/apiMappers';
 import { isOverhaulSeason } from '../services/contractRules';
+import type { ContractService, ScheduleCapacity } from './useContractUsage';
 
 type StaffMember = { id: number; shopId: number; name: string; role: string };
-type ScheduleKind = 'maintenance' | 'inspection' | 'overhaul';
 type ApiAction = (action: () => Promise<unknown>, success: string) => Promise<boolean>;
 
 interface ScheduleRegistrationContext {
@@ -40,12 +40,20 @@ interface ScheduleRegistrationContext {
   dataSourceStatus: Ref<'mock' | 'api' | 'error'>;
   useMockData: boolean;
   bikeLabel: (id: number) => string;
-  scheduleRemaining: (bike: Bike, kind: ScheduleKind) => number;
+  scheduleRemaining: (bike: Bike, kind: ContractService) => number;
+  scheduleCapacityFor: (
+    bikeId: Ref<number>,
+    kind: ContractService
+  ) => ComputedRef<ScheduleCapacity>;
   apiAction: ApiAction;
 }
 
 /** オーバーホール・メンテナンス・点検予定の登録フローをまとめます。 */
 export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
+  const overhaulScheduleCapacity = ctx.scheduleCapacityFor(ctx.newOverhaulBike, 'overhaul');
+  const maintenanceScheduleCapacity = ctx.scheduleCapacityFor(ctx.newWorkBike, 'maintenance');
+  const eventScheduleCapacity = ctx.scheduleCapacityFor(ctx.newEventBike, 'inspection');
+
   async function addOverhaul() {
     if (ctx.bikeLabel(ctx.newOverhaulBike.value) !== ctx.overhaulBikeSearch.value) {
       ctx.notice.value = '顧客・自転車は候補から選択してください。';
@@ -248,5 +256,12 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
     }
   }
 
-  return { addOverhaul, addMaintenance, addEvent };
+  return {
+    overhaulScheduleCapacity,
+    maintenanceScheduleCapacity,
+    eventScheduleCapacity,
+    addOverhaul,
+    addMaintenance,
+    addEvent,
+  };
 }

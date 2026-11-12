@@ -1,22 +1,39 @@
 # フロントエンド構成
 
-現在は既存画面の動作を維持しながら、App.vue から独立できる定義・処理を段階的に分離しています。
+画面の動作を維持しながら、表示コンポーネントと業務処理を段階的に分離しています。
 
 - `types/`: 画面・業務データで共有する型定義
 - `constants/`: ページ名と表示名などの固定値
 - `utils/`: 一覧検索・並び替えなど、画面に依存しない処理
-- `services/`: APIレスポンスと画面表示用データの変換
+- `services/`: APIレスポンス変換と契約日付ルール
+- `fixtures/`: Vueモックモード用の初期サンプルデータ
+- `composables/`: APIデータ、認証、一覧集計、登録・編集フローなどの状態と処理
+- `components/`: ページ表示、レイアウト、登録・詳細モーダル
 - `api.ts`: HTTP通信
-- `App.vue`: 画面状態と画面表示の統括（次段階で画面・機能単位に分割予定）
+- `App.vue`: 共有状態を所有し、ページ・モーダル・Composableを組み合わせる
 
-## 次の分割候補
+## 現在の責務分担
 
-1. `App.vue` のサイドバー・共通ヘッダーを `components/layout/` に分離
-2. ダッシュボード、顧客・自転車管理、作業管理などの画面を `views/` に分離
-3. 登録・完了・編集処理を `composables/` に分離
-4. API取得・更新処理を `services/` に集約
+- `App.vue` はページ選択、共有フォーム値、選択中の顧客・自転車、子コンポーネント間のイベント連携を担当します。
+- `composables/usePortalSession.ts` は認証復元、サインイン・サインアウトとデータの初期化を担当します。
+- `composables/usePortalApiData.ts` はAPIデータの取得・画面用変換と更新時の共通通知を担当します。
+- `usePortalApiData.ts` は接続状態インジケーターの表示内容も状態に応じて提供します。
+- `fixtures/mockData.ts` は型付きのVueモックデータを生成し、画面状態から独立して管理します。
+- `composables/useContractRegistration.ts`、`useScheduleRegistration.ts`、`useWorkEditing.ts`、`useWorkLifecycle.ts` は契約・予定・作業の更新フローを担当します。
+- `composables/useCustomerNavigation.ts` は顧客詳細からの自転車選択、画面遷移、対象を引き継いだ登録フォームの初期化を担当します。
+- `composables/useBikeOptions.ts` は登録フォームで使う自転車候補ラベルと選択IDの同期を担当します。
+- `composables/useBikeCatalog.ts` は契約プラン参照と選択中自転車の解決を担当します。
+- `composables/useMailPreview.ts` は案内メールのプレビュー状態とモック送信後の通知を担当します。
+- `composables/usePortalNavigation.ts` はページ切替時の通知クリアと、モック環境の表示ロール切り替えを担当します。
+- `composables/useDetailSelection.ts` は顧客・自転車詳細を開く選択状態と、顧客ID連携フォームの初期化を担当します。
+- `composables/useBikeDetails.ts` は自転車詳細モーダルの契約プラン、店舗名、残回数の表示データを組み立てます。
+- `composables/useMasterDataRegistration.ts` は店舗・受付担当者・プラン登録のフォーム状態、モーダル状態、登録処理を担当します。
+- `composables/useContractRegistration.ts` は契約登録フォーム、登録モーダル、顧客・自転車・契約の登録と次の作業受付への遷移を担当します。
+- `composables/useWorkLifecycle.ts` と `useWorkEditing.ts` は完了・編集フォーム状態と、作業の状態遷移・編集保存をそれぞれ担当します。
+- `useDashboardData.ts`、`useStaffLists.ts`、`useCustomerPortal.ts`、`useCustomerDetails.ts`、`useActivityLists.ts` は各画面用の集計行を作ります。
+- `components/` の画面・モーダルはpropsで表示データを受け取り、イベントで操作を親へ通知します。
 
-画面間で共有している選択状態やモーダル制御を確認しながら、段階ごとにビルド・動作確認します。
+以下は、分割を進めた際の作業記録です。現在の責務はこの節を基準にしてください。
 
 ## 画面レイアウトの分割
 
@@ -103,6 +120,7 @@
 ## 予定登録処理のComposable化
 
 - `composables/useScheduleRegistration.ts` にオーバーホール・メンテナンス・イベント点検予定の登録フローを移しました。
+- 登録対象に応じた3種の契約残枠表示も同Composableが提供します。
 - 入力値・一覧データ・モーダル状態は `App.vue` が保持し、Composableには `ref` と既存の `apiAction` を渡します。
 - APIモード／Vueモックモードの分岐、契約回数チェック、受付担当者の選択、日付検証、成功時のモーダル制御は従来の動作を維持しています。
 - API通信の共通処理（エラー処理・再取得）は引き続き `App.vue` の `apiAction` が担当します。

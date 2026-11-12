@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import type { Bike, EventCheck, Work } from '../types';
 
 export function matches(query: string, ...values: unknown[]) {
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -12,9 +13,53 @@ export function matches(query: string, ...values: unknown[]) {
   );
 }
 
+export function matchesWorkSearch(query: string, work: Work, bike?: Bike, shopName?: string) {
+  return matches(
+    query,
+    bike?.customer,
+    bike?.maker,
+    bike?.model,
+    work.date,
+    work.status,
+    work.title,
+    work.detail,
+    shopName,
+    work.receptionist
+  );
+}
+
+export function matchesEventSearch(
+  query: string,
+  event: EventCheck,
+  bike?: Bike,
+  shopName?: string
+) {
+  return matches(
+    query,
+    event.name,
+    event.memo,
+    event.eventDate,
+    event.inspectionDate,
+    event.status,
+    bike?.customer,
+    bike?.maker,
+    bike?.model,
+    shopName,
+    event.receptionist
+  );
+}
+
 type SortField = 'date' | 'customer' | 'status';
 type SortDirection = 'asc' | 'desc';
 type ListSort = Record<string, { field: SortField; direction: SortDirection }>;
+
+export type ListSorter = <T>(
+  items: T[],
+  key: string,
+  getDate: (item: T) => string,
+  getCustomer?: (item: T) => string,
+  getStatus?: (item: T) => string
+) => T[];
 
 export function useListSort() {
   const listSort = ref<ListSort>({});

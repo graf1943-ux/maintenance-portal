@@ -1,6 +1,6 @@
-import type { Ref } from 'vue';
+import { ref, type Ref } from 'vue';
 import { apiPost, apiPut } from '../api';
-import type { EventCheck, Work } from '../types';
+import type { EventCheck, Status, Work } from '../types';
 import { dateIso } from '../services/apiMappers';
 
 type WorkKind = 'maintenance' | 'event' | 'overhaul';
@@ -15,14 +15,20 @@ interface WorkLifecycleContext {
   maintenance: Ref<Work[]>;
   eventChecks: Ref<EventCheck[]>;
   notice: Ref<string>;
-  completionTarget: Ref<CompletionTarget | null>;
-  completionMemo: Ref<string>;
-  completionDate: Ref<string>;
   apiAction: ApiAction;
 }
 
 /** 作業開始・完了の状態遷移をまとめます。履歴と契約回数の更新は完了API側で行います。 */
 export function useWorkLifecycle(ctx: WorkLifecycleContext) {
+  const completionTarget = ref<CompletionTarget | null>(null);
+  const completionMemo = ref('');
+  const completionDate = ref('2026-11-10');
+
+  function updateMaintenanceStatus(work: Work, status: Status) {
+    const target = ctx.maintenance.value.find((item) => item.id === work.id);
+    if (target) target.status = status;
+  }
+
   async function startWork(kind: WorkKind, item: WorkItem) {
     if (item.status === '完了' || item.status === 'キャンセル') return;
 
@@ -71,18 +77,18 @@ export function useWorkLifecycle(ctx: WorkLifecycleContext) {
   }
 
   function startCompletion(kind: WorkKind, item: WorkItem) {
-    ctx.completionTarget.value = { kind, id: item.id };
-    ctx.completionMemo.value = '';
+    completionTarget.value = { kind, id: item.id };
+    completionMemo.value = '';
     const suggested =
       item.endDate ||
       (kind === 'event' ? (item as EventCheck).inspectionDate : (item as Work).date);
-    ctx.completionDate.value = suggested.replace(/\//g, '-');
+    completionDate.value = suggested.replace(/\//g, '-');
   }
 
   async function confirmCompletion() {
-    if (!ctx.completionTarget.value) return;
+    if (!completionTarget.value) return;
 
-    const { kind, id } = ctx.completionTarget.value;
+    const { kind, id } = completionTarget.value;
     const list: WorkItem[] =
       kind === 'maintenance'
         ? ctx.maintenance.value
@@ -93,7 +99,7 @@ export function useWorkLifecycle(ctx: WorkLifecycleContext) {
     if (!item || item.status === '完了') return;
 
     const startDate = kind === 'event' ? (item as EventCheck).inspectionDate : (item as Work).date;
-    const endDate = ctx.completionDate.value;
+    const endDate = completionDate.value;
     if (!endDate || endDate < startDate.replace(/\//g, '-')) {
       ctx.notice.value = '完了日は開始日以降の日付を指定してください。';
       return;
@@ -101,7 +107,7 @@ export function useWorkLifecycle(ctx: WorkLifecycleContext) {
 
     const endpoint = kind === 'event' ? `/events/${id}/complete` : `/work/${id}/complete`;
     const ok = await ctx.apiAction(
-      () => apiPost(endpoint, { completedDate: endDate, memo: ctx.completionMemo.value }),
+      () => apiPost(endpoint, { completedDate: endDate, memo: completionMemo.value }),
       kind === 'event'
         ? '点検サポートを完了し、点検回数を1回消費しました。'
         : kind === 'maintenance'
@@ -110,10 +116,18 @@ export function useWorkLifecycle(ctx: WorkLifecycleContext) {
     );
 
     if (ok) {
-      ctx.completionTarget.value = null;
-      ctx.completionMemo.value = '';
+      completionTarget.value = null;
+      completionMemo.value = '';
     }
   }
 
-  return { startWork, startCompletion, confirmCompletion };
+  return {
+    completionTarget,
+    completionMemo,
+    completionDate,
+    updateMaintenanceStatus,
+    startWork,
+    startCompletion,
+    confirmCompletion,
+  };
 }
