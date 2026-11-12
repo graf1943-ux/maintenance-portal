@@ -39,6 +39,7 @@
     isApplicationWithinContractYear,
   } from './services/contractRules';
   import { useScheduleRegistration } from './composables/useScheduleRegistration';
+  import { useWorkLifecycle } from './composables/useWorkLifecycle';
   const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true';
   const dataSourceStatus = ref<'mock' | 'api' | 'error'>(USE_MOCK_DATA ? 'mock' : 'api');
   const dataSourceLabel = USE_MOCK_DATA ? 'MOCK DATA' : 'API MODE';
@@ -1078,103 +1079,17 @@
     page.value = p;
     notice.value = '';
   }
-  function addHistory(
-    b: Bike,
-    startDate: string,
-    endDate: string,
-    category: string,
-    title: string,
-    detail: string,
-    memo = ''
-  ) {
-    histories.value.unshift({
-      id: Math.max(0, ...histories.value.map((h) => h.id)) + 1,
-      bikeId: b.id,
-      startDate,
-      date: endDate,
-      category,
-      title,
-      detail,
-      memo,
-    });
-  }
-  async function startWork(kind: 'maintenance' | 'event' | 'overhaul', item: any) {
-    if (item.status === '完了' || item.status === 'キャンセル') return;
-    const staffMember =
-      staff.value.find((x) => x.name === item.receptionist && x.shopId === item.shopId) ??
-      staff.value.find((x) => x.shopId === item.shopId);
-    if (!staffMember) {
-      notice.value = '受付担当者を確認してください。';
-      return;
-    }
-    const ok =
-      kind === 'event'
-        ? await apiAction(
-            () =>
-              apiPut(`/events/${item.id}`, {
-                id: item.id,
-                bikeId: item.bikeId,
-                name: item.name,
-                eventDate: dateIso(item.eventDate),
-                inspectionStartDate: dateIso(item.inspectionDate),
-                inspectionEndDate: dateIso(item.endDate),
-                status: '作業中',
-                memo: item.memo,
-                shopId: item.shopId,
-                receptionistId: staffMember.id,
-              }),
-            '点検を作業中に変更しました。'
-          )
-        : await apiAction(
-            () =>
-              apiPut(`/work/${item.id}`, {
-                startDate: dateIso(item.date),
-                endDate: dateIso(item.endDate) || null,
-                status: '作業中',
-                title: item.title,
-                detail: item.detail,
-                receptionistId: staffMember.id,
-              }),
-            '作業中に変更しました。'
-          );
-  }
-  function startCompletion(kind: 'maintenance' | 'event' | 'overhaul', item: any) {
-    completionTarget.value = { kind, id: item.id };
-    completionMemo.value = '';
-    const suggested = item.endDate || (kind === 'event' ? item.inspectionDate : item.date);
-    completionDate.value = suggested.replace(/\//g, '-');
-  }
-  async function confirmCompletion() {
-    if (!completionTarget.value) return;
-    const { kind, id } = completionTarget.value;
-    const list: any =
-      kind === 'maintenance'
-        ? maintenance.value
-        : kind === 'event'
-          ? eventChecks.value
-          : overhauls.value;
-    const item = list.find((x: any) => x.id === id);
-    if (!item || item.status === '完了') return;
-    const startDate = kind === 'event' ? item.inspectionDate : item.date;
-    const endDate = completionDate.value;
-    if (!endDate || endDate < startDate.replace(/\//g, '-')) {
-      notice.value = '完了日は開始日以降の日付を指定してください。';
-      return;
-    }
-    const endpoint = kind === 'event' ? `/events/${id}/complete` : `/work/${id}/complete`;
-    const ok = await apiAction(
-      () => apiPost(endpoint, { completedDate: endDate, memo: completionMemo.value }),
-      kind === 'event'
-        ? '点検サポートを完了し、点検回数を1回消費しました。'
-        : kind === 'maintenance'
-          ? 'メンテナンスを完了し、メンテナンス回数を1回消費しました。'
-          : 'オーバーホールを完了しました。'
-    );
-    if (ok) {
-      completionTarget.value = null;
-      completionMemo.value = '';
-    }
-  }
+  const { startWork, startCompletion, confirmCompletion } = useWorkLifecycle({
+    staff,
+    overhauls,
+    maintenance,
+    eventChecks,
+    notice,
+    completionTarget,
+    completionMemo,
+    completionDate,
+    apiAction: (action, success) => apiAction(action, success),
+  });
 
   async function addContract() {
     if (USE_MOCK_DATA) {
