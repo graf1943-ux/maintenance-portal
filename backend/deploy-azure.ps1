@@ -66,6 +66,32 @@ $defaultHostName = az webapp show --resource-group $ResourceGroup --name $AppNam
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($defaultHostName)) {
     throw 'Could not retrieve the App Service default hostname.'
 }
+$databaseSettingCount = az webapp config appsettings list --resource-group $ResourceGroup --name $AppName `
+    --query "[?name=='ConnectionStrings__RoadbikeCare'] | length(@)" --output tsv
+if ($LASTEXITCODE -ne 0) {
+    throw 'Could not verify the database connection setting.'
+}
+if ($databaseSettingCount.Trim() -ne '1') {
+    throw 'Configure the ConnectionStrings__RoadbikeCare App Service setting before deploying.'
+}
+$requiredAuthenticationSettings = @(
+    'Authentication__Staff__Authority',
+    'Authentication__Staff__Issuer',
+    'Authentication__Staff__Audience',
+    'Authentication__Customer__Authority',
+    'Authentication__Customer__Issuer',
+    'Authentication__Customer__Audience'
+)
+foreach ($settingName in $requiredAuthenticationSettings) {
+    $settingCount = az webapp config appsettings list --resource-group $ResourceGroup --name $AppName `
+        --query "[?name=='$settingName' && value!=''] | length(@)" --output tsv
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not verify the required authentication setting '$settingName'."
+    }
+    if ($settingCount.Trim() -ne '1') {
+        throw "Configure the $settingName App Service setting before deploying."
+    }
+}
 
 if (Test-Path $publishDirectory) {
     Remove-Item $publishDirectory -Recurse -Force

@@ -122,8 +122,7 @@
             </td>
             <td>{{ row.bike.model }}</td>
             <td>
-              <b>{{ row.event.name }}</b
-              ><small class="cell-sub">{{ row.event.memo }}</small>
+              <b>{{ row.event.name }}</b><small class="cell-sub">{{ row.event.memo }}</small>
             </td>
             <td>{{ row.event.eventDate }}</td>
             <td>

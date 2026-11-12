@@ -1,13 +1,23 @@
 <script setup lang="ts">
   import type { Page } from '../../types';
 
-  withDefaults(defineProps<{ page: Page; role: 'staff' | 'customer' }>(), {
-    role: 'staff',
-  });
+  withDefaults(
+    defineProps<{
+      page: Page;
+      role: 'staff' | 'customer';
+      userName?: string;
+      roleToggleEnabled?: boolean;
+    }>(),
+    {
+      role: 'staff',
+      roleToggleEnabled: true,
+    }
+  );
 
   defineEmits<{
     navigate: [page: Page];
     'toggle-role': [];
+    'sign-out': [];
   }>();
 </script>
 
@@ -96,14 +106,15 @@
       </div></template
     >
     <div class="sidebar-bottom">
-      <div class="side-label">表示モード</div>
-      <button class="mode-switch" @click="$emit('toggle-role')">
+      <div v-if="roleToggleEnabled" class="side-label">表示モード</div>
+      <button v-if="roleToggleEnabled" class="mode-switch" @click="$emit('toggle-role')">
         <span>{{ role === 'staff' ? '店舗スタッフ' : '顧客マイページ' }}</span><span>切替 ↗</span>
       </button>
+      <button v-else class="mode-switch" @click="$emit('sign-out')">サインアウト</button>
       <div class="user">
         <div class="avatar">店</div>
         <div>
-          <b>{{ role === 'staff' ? '店舗管理者' : '山田 太郎' }}</b><small>{{
+          <b>{{ userName || (role === 'staff' ? '店舗管理者' : '山田 太郎') }}</b><small>{{
             role === 'staff' ? 'スタッフアカウント' : '顧客アカウント'
           }}</small>
         </div>

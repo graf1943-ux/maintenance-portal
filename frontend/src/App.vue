@@ -12,6 +12,15 @@
   import MypageView from './components/mypage/MypageView.vue';
   import ShopsView from './components/shops/ShopsView.vue';
   import PlansView from './components/plans/PlansView.vue';
+  import LoginView from './components/auth/LoginView.vue';
+  import {
+    authState,
+    isAuthConfigured,
+    restoreAuthentication,
+    signIn,
+    signOut,
+    type PortalRole,
+  } from './auth';
   import { apiGet, apiPost, apiPut } from './api';
   import type { Page, Status, Plan, Bike, Work, EventCheck, History } from './types';
   import { pageTitles } from './constants/pages';
@@ -33,6 +42,16 @@
   const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true';
   const dataSourceStatus = ref<'mock' | 'api' | 'error'>(USE_MOCK_DATA ? 'mock' : 'api');
   const dataSourceLabel = USE_MOCK_DATA ? 'MOCK DATA' : 'API MODE';
+  const portalProfile = ref<{
+    role: PortalRole;
+    name: string;
+    customerId?: number;
+    email?: string;
+    isStaffAdmin?: boolean;
+  } | null>(null);
+  const authError = ref('');
+  const customerAuthEnabled = isAuthConfigured('customer');
+  const staffAuthEnabled = isAuthConfigured('staff');
   const page = ref<Page>('dashboard'),
     role = ref<'staff' | 'customer'>('staff'),
     selectedBikeId = ref(1),
@@ -50,7 +69,13 @@
   const showCustomerDetail = ref(false),
     showBikeDetail = ref(false),
     selectedCustomerName = ref(''),
+    selectedCustomerId = ref<number | null>(null),
     selectedBikeFilter = ref<number | null>(null);
+  const customerIdentityTenantId = ref(''),
+    customerIdentityObjectId = ref(''),
+    customerIdentityError = ref(''),
+    customerIdentityMessage = ref(''),
+    customerIdentitySaving = ref(false);
   // 一覧用の顧客名・自転車名フィルター。候補一覧を開かず、部分一致で直接絞り込みます。
   const customerFilterText = ref(''),
     bikeFilterText = ref('');
@@ -425,10 +450,11 @@
   const receptionistName = (id: number) => staff.value.find((x) => x.id === id)?.name ?? '';
   async function reloadData() {
     if (USE_MOCK_DATA) return;
+    const isStaff = role.value === 'staff';
     const [c, sh, st, pl, b, oh, ma, ev, hi] = await Promise.all([
       apiGet<any[]>('/customers'),
-      apiGet<any[]>('/shops'),
-      apiGet<any[]>('/staff'),
+      isStaff ? apiGet<any[]>('/shops') : Promise.resolve([]),
+      isStaff ? apiGet<any[]>('/staff') : Promise.resolve([]),
       apiGet<Plan[]>('/plans'),
       apiGet<ApiBike[]>('/bikes'),
       apiGet<any[]>('/overhauls'),
@@ -471,13 +497,59 @@
     eventChecks.value = [];
     histories.value = [];
     try {
-      await reloadData();
-      notice.value = 'バックエンドAPIに接続しました。';
+      if (!(await restoreAuthentication())) return;
+      await connectPortal();
     } catch (e) {
+      authError.value = e instanceof Error ? e.message : 'サインイン情報を確認できませんでした。';
       dataSourceStatus.value = 'error';
-      notice.value = `APIに接続できません。モックデータへの自動切替は行いません。${e instanceof Error ? ` (${e.message})` : ''}`;
     }
   });
+  async function connectPortal() {
+    const profile = await apiGet<{
+      role: PortalRole;
+      customerId?: number;
+      name: string;
+      email?: string;
+      isStaffAdmin?: boolean;
+    }>('/me');
+    if (profile.role !== authState.role)
+      throw new Error('アカウントの権限を確認できませんでした。');
+    portalProfile.value = profile;
+    role.value = profile.role;
+    page.value = profile.role === 'customer' ? 'mypage' : 'dashboard';
+    await reloadData();
+    dataSourceStatus.value = 'api';
+    notice.value = 'バックエンドAPIに接続しました。';
+  }
+  async function handleSignIn(selectedRole: PortalRole) {
+    authError.value = '';
+    try {
+      await signIn(selectedRole);
+    } catch (e) {
+      portalProfile.value = null;
+      authError.value = e instanceof Error ? e.message : 'サインインできませんでした。';
+    }
+  }
+  async function handleSignOut() {
+    portalProfile.value = null;
+    authError.value = '';
+    try {
+      await signOut();
+    } catch (e) {
+      authError.value = e instanceof Error ? e.message : 'サインアウトできませんでした。';
+    }
+    customers.value = [];
+    shops.value = [];
+    staff.value = [];
+    plans.value = [];
+    bikes.value = [];
+    overhauls.value = [];
+    maintenance.value = [];
+    eventChecks.value = [];
+    histories.value = [];
+    role.value = 'staff';
+    page.value = 'dashboard';
+  }
   async function apiAction(action: () => Promise<unknown>, success: string) {
     if (USE_MOCK_DATA) {
       notice.value =
@@ -601,7 +673,9 @@
     bikes.value.filter((b) => b.customer === selectedCustomerName.value)
   );
   const selectedCustomer = computed(() =>
-    customers.value.find((c) => c.name === selectedCustomerName.value)
+    selectedCustomerId.value !== null
+      ? customers.value.find((c) => c.id === selectedCustomerId.value)
+      : customers.value.find((c) => c.name === selectedCustomerName.value)
   );
   const selectedCustomerWorks = computed(() =>
     [
@@ -627,9 +701,35 @@
     showMail.value = true;
   }
 
-  function openCustomerDetail(name: string) {
-    selectedCustomerName.value = name;
+  function openCustomerDetail(customer: string | { id?: number; name: string }) {
+    selectedCustomerName.value = typeof customer === 'string' ? customer : customer.name;
+    selectedCustomerId.value = typeof customer === 'string' ? null : (customer.id ?? null);
+    customerIdentityTenantId.value = '';
+    customerIdentityObjectId.value = '';
+    customerIdentityError.value = '';
+    customerIdentityMessage.value = '';
     showCustomerDetail.value = true;
+  }
+  async function linkSelectedCustomerIdentity() {
+    const customerId = selectedCustomer.value?.id;
+    const tenantId = customerIdentityTenantId.value.trim();
+    const objectId = customerIdentityObjectId.value.trim();
+    customerIdentityError.value = '';
+    customerIdentityMessage.value = '';
+    if (!customerId || !tenantId || !objectId) {
+      customerIdentityError.value = '顧客、Tenant ID、Object IDを確認してください。';
+      return;
+    }
+    customerIdentitySaving.value = true;
+    try {
+      await apiPut<void>(`/customers/${customerId}/identity`, { tenantId, objectId });
+      customerIdentityMessage.value = 'Entra IDを顧客に紐付けました。';
+    } catch (error) {
+      customerIdentityError.value =
+        error instanceof Error ? error.message : 'Entra IDを紐付けできませんでした。';
+    } finally {
+      customerIdentitySaving.value = false;
+    }
   }
   function openCustomerBikeRegistration(kind: 'overhaul' | 'maintenance' | 'event', bike: Bike) {
     // 登録フォームは顧客詳細モーダルに重ねず、該当する管理画面上で単独表示します。
@@ -751,8 +851,14 @@
       (x) => x.status
     ).slice(0, 7)
   );
-  const customerBikes = computed(() => bikes.value.filter((b) => b.customer === '山田 太郎'));
-  const customerPortalName = '山田 太郎';
+  const customerBikes = computed(() =>
+    bikes.value.filter((bike) =>
+      USE_MOCK_DATA
+        ? bike.customer === '山田 太郎'
+        : bike.customerId === portalProfile.value?.customerId
+    )
+  );
+  const customerPortalName = computed(() => portalProfile.value?.name ?? '山田 太郎');
   const mypageBikeCards = computed(() =>
     customerBikes.value
       .filter((bike) => matches(searchMyPage.value, bike.model, bike.maker, planFor(bike).name))
@@ -1286,6 +1392,7 @@
   });
 
   function toggleRole() {
+    if (!USE_MOCK_DATA) return;
     role.value = role.value === 'staff' ? 'customer' : 'staff';
     page.value = role.value === 'customer' ? 'mypage' : 'dashboard';
   }
@@ -1296,810 +1403,873 @@
   }
 </script>
 <template>
-  <div class="app-shell">
-    <AppSidebar :page="page" :role="role" @navigate="setPage" @toggle-role="toggleRole" />
-    <main class="main">
-      <AppHeader :page-title="pageTitles[page]" :today="today" />
-      <div class="content">
-        <div class="data-source-indicator" :class="dataSourceStatus">
-          <strong>{{
-            dataSourceStatus === 'mock'
-              ? 'MOCK DATA'
-              : dataSourceStatus === 'error'
-                ? 'API ERROR'
-                : dataSourceLabel
-          }}</strong><span>{{
-            dataSourceStatus === 'mock'
-              ? 'Vue内のサンプルデータを表示中（API通信なし）'
-              : dataSourceStatus === 'error'
-                ? 'API接続に失敗。モックデータへの切替は行っていません'
-                : 'バックエンドAPIのデータを使用'
-          }}</span>
-        </div>
-        <div v-if="notice" class="notice">
-          <span>{{ notice }}</span><button @click="notice = ''">×</button>
-        </div>
-        <DashboardView
-          v-if="page === 'dashboard'"
-          :bikes="bikes"
-          :dashboard-rows="dashboardRows"
-          :upcoming-count="upcomingCount"
-          :pending-count="pendingCount"
-          :completed-count="completedCount"
-          :customer-sort-label="sortLabel('dashboard', 'customer')"
-          :date-sort-label="sortLabel('dashboard', 'date')"
-          :status-sort-label="sortLabel('dashboard', 'status')"
-          @sort="toggleListSort('dashboard', $event)"
-          @open-customer="openCustomerDetail"
-        />
-        <ShopsView
-          v-if="page === 'shops'"
-          :shops="shops"
-          :staff="staff"
-          :search-text="searchShops"
-          @update:search-text="searchShops = $event"
-          @add-shop="showShopModal = true"
-          @add-staff="showStaffModal = true"
-        />
-        <PlansView v-else-if="page === 'plans'" :plans="plans" @add-plan="showPlanModal = true" />
-        <template v-else-if="page === 'bikes'">
-          <BikeContractsView
-            :customers-count="customers.length"
-            :bikes-count="bikes.length"
-            :search-text="searchBikes"
-            :sort-label="sortLabel('bikes', 'customer')"
-            :rows="bikeContractRows"
-            @update:search-text="searchBikes = $event"
-            @sort="toggleListSort('bikes', 'customer')"
-            @add-contract="showContractModal = true"
-            @open-customer="openCustomerDetail"
-            @open-bike="openBikeDetail"
-          />
-        </template>
-        <template v-else-if="page === 'overhaul'">
-          <OverhaulView
-            :rows="overhaulRows"
-            :count="overhaulBikeFilterCount"
-            :customer-filter-text="customerFilterText"
-            :bike-filter-text="bikeFilterText"
-            :selected-bike-filter="selectedBikeFilter"
-            :search-text="searchOverhauls"
-            :customer-sort-label="sortLabel('overhaul', 'customer')"
-            :date-sort-label="sortLabel('overhaul', 'date')"
-            :status-sort-label="sortLabel('overhaul', 'status')"
-            @update:customer-filter-text="customerFilterText = $event"
-            @update:bike-filter-text="bikeFilterText = $event"
-            @update:search-text="searchOverhauls = $event"
-            @clear-filters="clearBikeNameFilters"
-            @sort="toggleListSort('overhaul', $event)"
-            @open-customer="openCustomerDetail"
-            @edit="openEdit('overhaul', $event)"
-            @start-work="startWork('overhaul', $event)"
-            @complete="startCompletion('overhaul', $event)"
-          />
-        </template>
-
-        <template v-else-if="page === 'maintenance'">
-          <MaintenanceView
-            :rows="maintenanceRows"
-            :count="maintenanceBikeFilterCount"
-            :customer-filter-text="customerFilterText"
-            :bike-filter-text="bikeFilterText"
-            :selected-bike-filter="selectedBikeFilter"
-            :search-text="searchMaintenance"
-            :customer-sort-label="sortLabel('maintenance', 'customer')"
-            :date-sort-label="sortLabel('maintenance', 'date')"
-            :status-sort-label="sortLabel('maintenance', 'status')"
-            @update:customer-filter-text="customerFilterText = $event"
-            @update:bike-filter-text="bikeFilterText = $event"
-            @update:search-text="searchMaintenance = $event"
-            @clear-filters="clearBikeNameFilters"
-            @sort="toggleListSort('maintenance', $event)"
-            @open-customer="openCustomerDetail"
-            @status-change="updateMaintenanceStatus"
-            @edit="openEdit('maintenance', $event)"
-            @start-work="startWork('maintenance', $event)"
-            @complete="startCompletion('maintenance', $event)"
-          />
-        </template>
-
-        <template v-else-if="page === 'events'">
-          <EventInspectionView
-            :rows="eventInspectionRows"
-            :count="eventInspectionCount"
-            :customer-filter-text="customerFilterText"
-            :bike-filter-text="bikeFilterText"
-            :selected-bike-filter="selectedBikeFilter"
-            :search-text="searchEvents"
-            :customer-sort-label="sortLabel('events', 'customer')"
-            :date-sort-label="sortLabel('events', 'date')"
-            :status-sort-label="sortLabel('events', 'status')"
-            @update:customer-filter-text="customerFilterText = $event"
-            @update:bike-filter-text="bikeFilterText = $event"
-            @update:search-text="searchEvents = $event"
-            @clear-filters="clearBikeNameFilters"
-            @sort="toggleListSort('events', $event)"
-            @open-customer="openCustomerDetail"
-            @edit="openEdit('event', $event)"
-            @start-work="startWork('event', $event)"
-            @complete="startCompletion('event', $event)"
-          />
-        </template>
-
-        <template v-else-if="page === 'history'">
-          <HistoryView
+  <LoginView
+    v-if="!USE_MOCK_DATA && !portalProfile"
+    :loading="authState.loading"
+    :error="authError"
+    :customer-enabled="customerAuthEnabled"
+    :staff-enabled="staffAuthEnabled"
+    :authenticated="Boolean(authState.account)"
+    @sign-in="handleSignIn"
+    @sign-out="handleSignOut"
+  />
+  <template v-else>
+    <div class="app-shell">
+      <AppSidebar
+        :page="page"
+        :role="role"
+        :user-name="portalProfile?.name"
+        :role-toggle-enabled="USE_MOCK_DATA"
+        @navigate="setPage"
+        @toggle-role="toggleRole"
+        @sign-out="handleSignOut"
+      />
+      <main class="main">
+        <AppHeader :page-title="pageTitles[page]" :today="today" />
+        <div class="content">
+          <div class="data-source-indicator" :class="dataSourceStatus">
+            <strong>{{
+              dataSourceStatus === 'mock'
+                ? 'MOCK DATA'
+                : dataSourceStatus === 'error'
+                  ? 'API ERROR'
+                  : dataSourceLabel
+            }}</strong><span>{{
+              dataSourceStatus === 'mock'
+                ? 'Vue内のサンプルデータを表示中（API通信なし）'
+                : dataSourceStatus === 'error'
+                  ? 'API接続に失敗。モックデータへの切替は行っていません'
+                  : 'バックエンドAPIのデータを使用'
+            }}</span>
+          </div>
+          <div v-if="notice" class="notice">
+            <span>{{ notice }}</span><button @click="notice = ''">×</button>
+          </div>
+          <DashboardView
+            v-if="page === 'dashboard'"
             :bikes="bikes"
-            :selected-bike-id="selectedBikeId"
-            :selected-bike="selectedBike"
-            :rows="historyRows"
-            :count="histories.filter((h) => h.bikeId === selectedBikeId).length"
-            :search-text="searchHistory"
-            :date-sort-label="sortLabel('history', 'date')"
-            @update:selected-bike-id="selectedBikeId = $event"
-            @update:search-text="searchHistory = $event"
-            @sort="toggleListSort('history', 'date')"
-          />
-        </template>
-
-        <template v-else-if="page === 'messages'">
-          <MessagesView
-            :rows="messageRows"
+            :dashboard-rows="dashboardRows"
+            :upcoming-count="upcomingCount"
             :pending-count="pendingCount"
-            :search-text="searchMessages"
-            :customer-sort-label="sortLabel('messages', 'customer')"
-            :date-sort-label="sortLabel('messages', 'date')"
-            @update:search-text="searchMessages = $event"
-            @sort="toggleListSort('messages', $event)"
+            :completed-count="completedCount"
+            :customer-sort-label="sortLabel('dashboard', 'customer')"
+            :date-sort-label="sortLabel('dashboard', 'date')"
+            :status-sort-label="sortLabel('dashboard', 'status')"
+            @sort="toggleListSort('dashboard', $event)"
             @open-customer="openCustomerDetail"
-            @compose-mail="composeMail"
           />
-        </template>
+          <ShopsView
+            v-if="page === 'shops'"
+            :shops="shops"
+            :staff="staff"
+            :search-text="searchShops"
+            @update:search-text="searchShops = $event"
+            @add-shop="showShopModal = true"
+            @add-staff="showStaffModal = true"
+          />
+          <PlansView v-else-if="page === 'plans'" :plans="plans" @add-plan="showPlanModal = true" />
+          <template v-else-if="page === 'bikes'">
+            <BikeContractsView
+              :customers-count="customers.length"
+              :bikes-count="bikes.length"
+              :search-text="searchBikes"
+              :sort-label="sortLabel('bikes', 'customer')"
+              :rows="bikeContractRows"
+              @update:search-text="searchBikes = $event"
+              @sort="toggleListSort('bikes', 'customer')"
+              @add-contract="showContractModal = true"
+              @open-customer="openCustomerDetail"
+              @open-bike="openBikeDetail"
+            />
+          </template>
+          <template v-else-if="page === 'overhaul'">
+            <OverhaulView
+              :rows="overhaulRows"
+              :count="overhaulBikeFilterCount"
+              :customer-filter-text="customerFilterText"
+              :bike-filter-text="bikeFilterText"
+              :selected-bike-filter="selectedBikeFilter"
+              :search-text="searchOverhauls"
+              :customer-sort-label="sortLabel('overhaul', 'customer')"
+              :date-sort-label="sortLabel('overhaul', 'date')"
+              :status-sort-label="sortLabel('overhaul', 'status')"
+              @update:customer-filter-text="customerFilterText = $event"
+              @update:bike-filter-text="bikeFilterText = $event"
+              @update:search-text="searchOverhauls = $event"
+              @clear-filters="clearBikeNameFilters"
+              @sort="toggleListSort('overhaul', $event)"
+              @open-customer="openCustomerDetail"
+              @edit="openEdit('overhaul', $event)"
+              @start-work="startWork('overhaul', $event)"
+              @complete="startCompletion('overhaul', $event)"
+            />
+          </template>
 
-        <template v-else>
-          <MypageView
-            :customer-name="customerPortalName"
-            :bike-cards="mypageBikeCards"
-            :schedule-rows="mypageScheduleRows"
-            :search-text="searchMyPage"
-            :date-sort-label="sortLabel('mypage', 'date')"
-            :status-sort-label="sortLabel('mypage', 'status')"
-            @update:search-text="searchMyPage = $event"
-            @sort="toggleListSort('mypage', $event)"
-          />
-        </template>
-      </div>
-    </main>
-  </div>
-  <div v-if="showBikeDetail" class="modal-backdrop" @click.self="showBikeDetail = false">
-    <div class="modal modal-wide bike-detail-modal">
-      <div class="modal-head">
-        <div>
-          <p class="eyebrow">CONTRACT DETAILS</p>
-          <h2>契約詳細</h2>
-          <p class="sub">選択した自転車の契約内容とサービス残回数</p>
+          <template v-else-if="page === 'maintenance'">
+            <MaintenanceView
+              :rows="maintenanceRows"
+              :count="maintenanceBikeFilterCount"
+              :customer-filter-text="customerFilterText"
+              :bike-filter-text="bikeFilterText"
+              :selected-bike-filter="selectedBikeFilter"
+              :search-text="searchMaintenance"
+              :customer-sort-label="sortLabel('maintenance', 'customer')"
+              :date-sort-label="sortLabel('maintenance', 'date')"
+              :status-sort-label="sortLabel('maintenance', 'status')"
+              @update:customer-filter-text="customerFilterText = $event"
+              @update:bike-filter-text="bikeFilterText = $event"
+              @update:search-text="searchMaintenance = $event"
+              @clear-filters="clearBikeNameFilters"
+              @sort="toggleListSort('maintenance', $event)"
+              @open-customer="openCustomerDetail"
+              @status-change="updateMaintenanceStatus"
+              @edit="openEdit('maintenance', $event)"
+              @start-work="startWork('maintenance', $event)"
+              @complete="startCompletion('maintenance', $event)"
+            />
+          </template>
+
+          <template v-else-if="page === 'events'">
+            <EventInspectionView
+              :rows="eventInspectionRows"
+              :count="eventInspectionCount"
+              :customer-filter-text="customerFilterText"
+              :bike-filter-text="bikeFilterText"
+              :selected-bike-filter="selectedBikeFilter"
+              :search-text="searchEvents"
+              :customer-sort-label="sortLabel('events', 'customer')"
+              :date-sort-label="sortLabel('events', 'date')"
+              :status-sort-label="sortLabel('events', 'status')"
+              @update:customer-filter-text="customerFilterText = $event"
+              @update:bike-filter-text="bikeFilterText = $event"
+              @update:search-text="searchEvents = $event"
+              @clear-filters="clearBikeNameFilters"
+              @sort="toggleListSort('events', $event)"
+              @open-customer="openCustomerDetail"
+              @edit="openEdit('event', $event)"
+              @start-work="startWork('event', $event)"
+              @complete="startCompletion('event', $event)"
+            />
+          </template>
+
+          <template v-else-if="page === 'history'">
+            <HistoryView
+              :bikes="bikes"
+              :selected-bike-id="selectedBikeId"
+              :selected-bike="selectedBike"
+              :rows="historyRows"
+              :count="histories.filter((h) => h.bikeId === selectedBikeId).length"
+              :search-text="searchHistory"
+              :date-sort-label="sortLabel('history', 'date')"
+              @update:selected-bike-id="selectedBikeId = $event"
+              @update:search-text="searchHistory = $event"
+              @sort="toggleListSort('history', 'date')"
+            />
+          </template>
+
+          <template v-else-if="page === 'messages'">
+            <MessagesView
+              :rows="messageRows"
+              :pending-count="pendingCount"
+              :search-text="searchMessages"
+              :customer-sort-label="sortLabel('messages', 'customer')"
+              :date-sort-label="sortLabel('messages', 'date')"
+              @update:search-text="searchMessages = $event"
+              @sort="toggleListSort('messages', $event)"
+              @open-customer="openCustomerDetail"
+              @compose-mail="composeMail"
+            />
+          </template>
+
+          <template v-else>
+            <MypageView
+              :customer-name="customerPortalName"
+              :bike-cards="mypageBikeCards"
+              :schedule-rows="mypageScheduleRows"
+              :search-text="searchMyPage"
+              :date-sort-label="sortLabel('mypage', 'date')"
+              :status-sort-label="sortLabel('mypage', 'status')"
+              @update:search-text="searchMyPage = $event"
+              @sort="toggleListSort('mypage', $event)"
+            />
+          </template>
         </div>
-        <button class="close" @click="showBikeDetail = false">×</button>
-      </div>
-      <div class="detail-grid">
-        <div>
-          <label>顧客</label><b>{{ selectedBike.customer }}</b>
+      </main>
+    </div>
+    <div v-if="showBikeDetail" class="modal-backdrop" @click.self="showBikeDetail = false">
+      <div class="modal modal-wide bike-detail-modal">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">CONTRACT DETAILS</p>
+            <h2>契約詳細</h2>
+            <p class="sub">選択した自転車の契約内容とサービス残回数</p>
+          </div>
+          <button class="close" @click="showBikeDetail = false">×</button>
         </div>
-        <div>
-          <label>自転車</label><b>{{ selectedBike.maker }} {{ selectedBike.model }}</b>
+        <div class="detail-grid">
+          <div>
+            <label>顧客</label><b>{{ selectedBike.customer }}</b>
+          </div>
+          <div>
+            <label>自転車</label><b>{{ selectedBike.maker }} {{ selectedBike.model }}</b>
+          </div>
+          <div>
+            <label>プラン</label><b>{{ planFor(selectedBike).name }}</b>
+          </div>
+          <div>
+            <label>契約期間</label
+            ><b>{{ selectedBike.contractStart }}〜{{ selectedBike.contractEnd }}</b>
+          </div>
+          <div>
+            <label>担当店舗・受付</label
+            ><b
+              >{{ shops.find((x) => x.id === selectedBike.shopId)?.name }} /
+              {{ selectedBike.receptionist }}</b
+            >
+          </div>
+          <div>
+            <label>オーバーホール残</label
+            ><b class="remaining large"
+              >{{ remaining(selectedBike, 'overhaul') }} /
+              {{ planFor(selectedBike).overhaulCount }}回</b
+            >
+          </div>
+          <div>
+            <label>メンテナンス残</label
+            ><b class="remaining large"
+              >{{ remaining(selectedBike, 'maintenance') }} /
+              {{ planFor(selectedBike).maintenanceCount }}回</b
+            >
+          </div>
+          <div>
+            <label>点検サポート残</label
+            ><b class="remaining large"
+              >{{ remaining(selectedBike, 'inspection') }} /
+              {{ planFor(selectedBike).inspectionCount }}回</b
+            >
+          </div>
+          <div>
+            <label>オーバーホール完了日</label
+            ><b>{{ selectedBike.overhaulCompleted || '未実施' }}</b>
+          </div>
+          <div>
+            <label>車体メーカー・モデル</label
+            ><b>{{ selectedBike.maker }} {{ selectedBike.model }}</b>
+          </div>
+          <div>
+            <label>年式</label><b>{{ selectedBike.year }}年</b>
+          </div>
+          <div>
+            <label>シリアル番号</label><b>{{ selectedBike.serial || '未登録' }}</b>
+          </div>
         </div>
-        <div>
-          <label>プラン</label><b>{{ planFor(selectedBike).name }}</b>
+        <div class="modal-actions">
+          <button class="outline" @click="showBikeDetail = false">閉じる</button>
         </div>
-        <div>
-          <label>契約期間</label
-          ><b>{{ selectedBike.contractStart }}〜{{ selectedBike.contractEnd }}</b>
-        </div>
-        <div>
-          <label>担当店舗・受付</label
-          ><b
-            >{{ shops.find((x) => x.id === selectedBike.shopId)?.name }} /
-            {{ selectedBike.receptionist }}</b
-          >
-        </div>
-        <div>
-          <label>オーバーホール残</label
-          ><b class="remaining large"
-            >{{ remaining(selectedBike, 'overhaul') }} /
-            {{ planFor(selectedBike).overhaulCount }}回</b
-          >
-        </div>
-        <div>
-          <label>メンテナンス残</label
-          ><b class="remaining large"
-            >{{ remaining(selectedBike, 'maintenance') }} /
-            {{ planFor(selectedBike).maintenanceCount }}回</b
-          >
-        </div>
-        <div>
-          <label>点検サポート残</label
-          ><b class="remaining large"
-            >{{ remaining(selectedBike, 'inspection') }} /
-            {{ planFor(selectedBike).inspectionCount }}回</b
-          >
-        </div>
-        <div>
-          <label>オーバーホール完了日</label><b>{{ selectedBike.overhaulCompleted || '未実施' }}</b>
-        </div>
-        <div>
-          <label>車体メーカー・モデル</label
-          ><b>{{ selectedBike.maker }} {{ selectedBike.model }}</b>
-        </div>
-        <div>
-          <label>年式</label><b>{{ selectedBike.year }}年</b>
-        </div>
-        <div>
-          <label>シリアル番号</label><b>{{ selectedBike.serial || '未登録' }}</b>
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button class="outline" @click="showBikeDetail = false">閉じる</button>
       </div>
     </div>
-  </div>
-  <div v-if="showCustomerDetail" class="modal-backdrop" @click.self="showCustomerDetail = false">
-    <div class="modal modal-wide customer-detail-modal">
-      <div class="modal-head">
-        <div>
-          <p class="eyebrow">CUSTOMER PROFILE</p>
-          <h2>{{ selectedCustomerName }} 様の顧客情報</h2>
-          <p class="sub">管理画面から顧客マイページと同等の契約・予定・履歴を確認できます。</p>
-        </div>
-        <button class="close" @click="showCustomerDetail = false">×</button>
-      </div>
-      <section class="customer-profile-summary">
-        <div>
-          <label>顧客名</label><b>{{ selectedCustomerName }}</b>
-        </div>
-        <div>
-          <label>メールアドレス</label><b>{{ selectedCustomer?.email || '未登録' }}</b>
-        </div>
-        <div>
-          <label>契約自転車</label><b>{{ selectedCustomerBikes.length }}台</b>
-        </div>
-      </section>
-      <section class="customer-profile-section">
-        <div class="panel-head">
+    <div v-if="showCustomerDetail" class="modal-backdrop" @click.self="showCustomerDetail = false">
+      <div class="modal modal-wide customer-detail-modal">
+        <div class="modal-head">
           <div>
-            <h3>契約中の自転車・年間プラン</h3>
-            <p>自転車ごとの契約期間とサービス残回数</p>
+            <p class="eyebrow">CUSTOMER PROFILE</p>
+            <h2>{{ selectedCustomerName }} 様の顧客情報</h2>
+            <p class="sub">管理画面から顧客マイページと同等の契約・予定・履歴を確認できます。</p>
           </div>
+          <button class="close" @click="showCustomerDetail = false">×</button>
         </div>
-        <div v-for="b in selectedCustomerBikes" :key="b.id" class="customer-profile-bike">
-          <div class="customer-profile-bike-title">
-            <b>{{ b.maker }} {{ b.model }}</b
-            ><span class="status success">契約中</span>
+        <section class="customer-profile-summary">
+          <div>
+            <label>顧客名</label><b>{{ selectedCustomerName }}</b>
           </div>
-          <div class="customer-bike-actions customer-bike-register-actions">
+          <div>
+            <label>メールアドレス</label><b>{{ selectedCustomer?.email || '未登録' }}</b>
+          </div>
+          <div>
+            <label>契約自転車</label><b>{{ selectedCustomerBikes.length }}台</b>
+          </div>
+        </section>
+        <section
+          v-if="portalProfile?.isStaffAdmin && selectedCustomerId !== null"
+          class="customer-profile-section customer-identity-section"
+        >
+          <div class="panel-head">
+            <div>
+              <h3>顧客Entra IDの紐付け</h3>
+              <p>External tenantのTenant IDと、登録ユーザーのObject IDを指定します。</p>
+            </div>
+          </div>
+          <div class="customer-identity-form">
+            <label>
+              Tenant ID
+              <input v-model="customerIdentityTenantId" autocomplete="off" required />
+            </label>
+            <label>
+              Object ID
+              <input v-model="customerIdentityObjectId" autocomplete="off" required />
+            </label>
+          </div>
+          <p class="customer-identity-note">
+            保存すると、この顧客の既存のEntra ID紐付けが置き換わります。
+          </p>
+          <p v-if="customerIdentityError" class="customer-identity-feedback error">
+            {{ customerIdentityError }}
+          </p>
+          <p v-if="customerIdentityMessage" class="customer-identity-feedback success">
+            {{ customerIdentityMessage }}
+          </p>
+          <div class="customer-identity-actions">
             <button
               class="primary small"
-              :disabled="scheduleRemaining(b, 'overhaul') <= 0"
-              @click="openCustomerBikeRegistration('overhaul', b)"
+              :disabled="customerIdentitySaving"
+              @click="linkSelectedCustomerIdentity"
             >
-              ＋ オーバーホール登録</button
-            ><button
-              class="primary small"
-              :disabled="scheduleRemaining(b, 'maintenance') <= 0"
-              @click="openCustomerBikeRegistration('maintenance', b)"
-            >
-              ＋ メンテナンス登録</button
-            ><button
-              class="primary small"
-              :disabled="scheduleRemaining(b, 'inspection') <= 0"
-              @click="openCustomerBikeRegistration('event', b)"
-            >
-              ＋ 点検登録
+              {{ customerIdentitySaving ? '保存中…' : 'Entra IDを紐付け' }}
             </button>
           </div>
-          <div class="customer-bike-actions customer-bike-manage-actions">
-            <button class="outline small" @click="openCustomerBikePage('overhaul', b.id)">
-              オーバーホール管理画面</button
-            ><button class="outline small" @click="openCustomerBikePage('maintenance', b.id)">
-              メンテナンス管理画面</button
-            ><button class="outline small" @click="openCustomerBikePage('events', b.id)">
-              点検管理画面</button
-            ><button class="outline small" @click="openCustomerBikePage('history', b.id)">
-              作業履歴
-            </button>
-          </div>
-          <div class="detail-grid">
+        </section>
+        <section class="customer-profile-section">
+          <div class="panel-head">
             <div>
-              <label>プラン</label><b>{{ planFor(b).name }}</b>
-            </div>
-            <div>
-              <label>契約期間</label><b>{{ b.contractStart }}〜{{ b.contractEnd }}</b>
-            </div>
-            <div>
-              <label>担当店舗・受付</label
-              ><b>{{ shops.find((x) => x.id === b.shopId)?.name }} / {{ b.receptionist }}</b>
-            </div>
-            <div>
-              <label>オーバーホール残</label
-              ><b class="remaining"
-                >{{ remaining(b, 'overhaul') }} / {{ planFor(b).overhaulCount }}回</b
-              >
-            </div>
-            <div>
-              <label>メンテナンス残</label
-              ><b class="remaining"
-                >{{ remaining(b, 'maintenance') }} / {{ planFor(b).maintenanceCount }}回</b
-              >
-            </div>
-            <div>
-              <label>点検サポート残</label
-              ><b class="remaining"
-                >{{ remaining(b, 'inspection') }} / {{ planFor(b).inspectionCount }}回</b
-              >
+              <h3>契約中の自転車・年間プラン</h3>
+              <p>自転車ごとの契約期間とサービス残回数</p>
             </div>
           </div>
+          <div v-for="b in selectedCustomerBikes" :key="b.id" class="customer-profile-bike">
+            <div class="customer-profile-bike-title">
+              <b>{{ b.maker }} {{ b.model }}</b
+              ><span class="status success">契約中</span>
+            </div>
+            <div class="customer-bike-actions customer-bike-register-actions">
+              <button
+                class="primary small"
+                :disabled="scheduleRemaining(b, 'overhaul') <= 0"
+                @click="openCustomerBikeRegistration('overhaul', b)"
+              >
+                ＋ オーバーホール登録</button
+              ><button
+                class="primary small"
+                :disabled="scheduleRemaining(b, 'maintenance') <= 0"
+                @click="openCustomerBikeRegistration('maintenance', b)"
+              >
+                ＋ メンテナンス登録</button
+              ><button
+                class="primary small"
+                :disabled="scheduleRemaining(b, 'inspection') <= 0"
+                @click="openCustomerBikeRegistration('event', b)"
+              >
+                ＋ 点検登録
+              </button>
+            </div>
+            <div class="customer-bike-actions customer-bike-manage-actions">
+              <button class="outline small" @click="openCustomerBikePage('overhaul', b.id)">
+                オーバーホール管理画面</button
+              ><button class="outline small" @click="openCustomerBikePage('maintenance', b.id)">
+                メンテナンス管理画面</button
+              ><button class="outline small" @click="openCustomerBikePage('events', b.id)">
+                点検管理画面</button
+              ><button class="outline small" @click="openCustomerBikePage('history', b.id)">
+                作業履歴
+              </button>
+            </div>
+            <div class="detail-grid">
+              <div>
+                <label>プラン</label><b>{{ planFor(b).name }}</b>
+              </div>
+              <div>
+                <label>契約期間</label><b>{{ b.contractStart }}〜{{ b.contractEnd }}</b>
+              </div>
+              <div>
+                <label>担当店舗・受付</label
+                ><b>{{ shops.find((x) => x.id === b.shopId)?.name }} / {{ b.receptionist }}</b>
+              </div>
+              <div>
+                <label>オーバーホール残</label
+                ><b class="remaining"
+                  >{{ remaining(b, 'overhaul') }} / {{ planFor(b).overhaulCount }}回</b
+                >
+              </div>
+              <div>
+                <label>メンテナンス残</label
+                ><b class="remaining"
+                  >{{ remaining(b, 'maintenance') }} / {{ planFor(b).maintenanceCount }}回</b
+                >
+              </div>
+              <div>
+                <label>点検サポート残</label
+                ><b class="remaining"
+                  >{{ remaining(b, 'inspection') }} / {{ planFor(b).inspectionCount }}回</b
+                >
+              </div>
+            </div>
+          </div>
+          <div v-if="!selectedCustomerBikes.length" class="empty-state">
+            契約中の自転車はありません。
+          </div>
+        </section>
+        <section class="customer-profile-section">
+          <div class="panel-head">
+            <div>
+              <h3>メンテナンス・点検予定</h3>
+              <p>対象自転車・作業期間・状態</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>対象自転車</th>
+                  <th>作業区分</th>
+                  <th>内容</th>
+                  <th>開始日〜完了日</th>
+                  <th>状態</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="w in selectedCustomerWorks" :key="w.kind + '-' + w.id">
+                  <td>{{ selectedCustomerBikes.find((b) => b.id === w.bikeId)?.model }}</td>
+                  <td>{{ w.kind }}</td>
+                  <td>{{ w.title }}</td>
+                  <td>{{ w.date }}〜{{ w.endDate || '未定' }}</td>
+                  <td>
+                    <span class="status info">{{ w.status }}</span>
+                  </td>
+                </tr>
+                <tr v-if="!selectedCustomerWorks.length">
+                  <td colspan="5" class="empty-state">予定は登録されていません。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <section class="customer-profile-section">
+          <div class="panel-head">
+            <div>
+              <h3>作業履歴</h3>
+              <p>完了した作業と記録メモ</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>実施日</th>
+                  <th>対象自転車</th>
+                  <th>作業区分</th>
+                  <th>作業内容</th>
+                  <th>メモ</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="h in selectedCustomerHistories" :key="h.id">
+                  <td>{{ h.date }}</td>
+                  <td>{{ selectedCustomerBikes.find((b) => b.id === h.bikeId)?.model }}</td>
+                  <td>{{ h.category }}</td>
+                  <td>{{ h.title }}</td>
+                  <td>{{ h.memo || '—' }}</td>
+                </tr>
+                <tr v-if="!selectedCustomerHistories.length">
+                  <td colspan="5" class="empty-state">作業履歴はありません。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <div class="modal-actions">
+          <button class="outline" @click="showCustomerDetail = false">閉じる</button>
         </div>
-        <div v-if="!selectedCustomerBikes.length" class="empty-state">
-          契約中の自転車はありません。
-        </div>
-      </section>
-      <section class="customer-profile-section">
-        <div class="panel-head">
+      </div>
+    </div>
+    <div v-if="showContractModal" class="modal-backdrop" @click.self="showContractModal = false">
+      <div class="modal modal-wide">
+        <div class="modal-head">
           <div>
-            <h3>メンテナンス・点検予定</h3>
-            <p>対象自転車・作業期間・状態</p>
+            <p class="eyebrow">NEW ANNUAL CONTRACT</p>
+            <h2>年間契約を登録</h2>
           </div>
+          <button class="close" @click="showContractModal = false">×</button>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>対象自転車</th>
-                <th>作業区分</th>
-                <th>内容</th>
-                <th>開始日〜完了日</th>
-                <th>状態</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="w in selectedCustomerWorks" :key="w.kind + '-' + w.id">
-                <td>{{ selectedCustomerBikes.find((b) => b.id === w.bikeId)?.model }}</td>
-                <td>{{ w.kind }}</td>
-                <td>{{ w.title }}</td>
-                <td>{{ w.date }}〜{{ w.endDate || '未定' }}</td>
-                <td>
-                  <span class="status info">{{ w.status }}</span>
-                </td>
-              </tr>
-              <tr v-if="!selectedCustomerWorks.length">
-                <td colspan="5" class="empty-state">予定は登録されていません。</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-      <section class="customer-profile-section">
-        <div class="panel-head">
+        <div class="detail-grid">
           <div>
-            <h3>作業履歴</h3>
-            <p>完了した作業と記録メモ</p>
+            <label>顧客</label
+            ><input
+              v-model="contractForm.customer"
+              list="customer-options"
+              placeholder="顧客名を入力して検索"
+            />
+          </div>
+          <div><label>メーカー</label><input v-model="contractForm.maker" /></div>
+          <div><label>モデル</label><input v-model="contractForm.model" /></div>
+          <div><label>年式</label><input v-model.number="contractForm.year" type="number" /></div>
+          <div><label>車体番号</label><input v-model="contractForm.serial" /></div>
+          <div>
+            <label>契約プラン</label
+            ><select v-model.number="contractForm.planId">
+              <option v-for="p in plans" :key="p.id" :value="p.id">
+                {{ p.name }}（OH {{ p.overhaulCount }} / メンテ {{ p.maintenanceCount }} / 点検
+                {{ p.inspectionCount }}）
+              </option>
+            </select>
+          </div>
+          <div>
+            <label>契約受付日</label><input v-model="contractForm.applicationDate" type="date" />
+          </div>
+          <div><label>契約開始日</label><input v-model="contractForm.start" type="date" /></div>
+          <div>
+            <label>担当店舗</label
+            ><select v-model.number="contractForm.shopId">
+              <option v-for="shop in shops" :key="shop.id" :value="shop.id">{{ shop.name }}</option>
+            </select>
+          </div>
+          <div>
+            <label>受付担当者</label
+            ><select v-model="contractForm.receptionist">
+              <option
+                v-for="person in staff.filter((x) => x.shopId === contractForm.shopId)"
+                :key="person.id"
+              >
+                {{ person.name }}
+              </option>
+            </select>
           </div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>実施日</th>
-                <th>対象自転車</th>
-                <th>作業区分</th>
-                <th>作業内容</th>
-                <th>メモ</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="h in selectedCustomerHistories" :key="h.id">
-                <td>{{ h.date }}</td>
-                <td>{{ selectedCustomerBikes.find((b) => b.id === h.bikeId)?.model }}</td>
-                <td>{{ h.category }}</td>
-                <td>{{ h.title }}</td>
-                <td>{{ h.memo || '—' }}</td>
-              </tr>
-              <tr v-if="!selectedCustomerHistories.length">
-                <td colspan="5" class="empty-state">作業履歴はありません。</td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="modal-note">
+          契約受付期限は契約開始年の12月31日。契約期間は12月1日〜翌年11月30日です。
         </div>
-      </section>
-      <div class="modal-actions">
-        <button class="outline" @click="showCustomerDetail = false">閉じる</button>
+        <div class="modal-actions">
+          <button class="outline" @click="showContractModal = false">キャンセル</button
+          ><button class="primary" @click="addContract">契約を登録してOH予定へ進む</button>
+        </div>
       </div>
     </div>
-  </div>
-  <div v-if="showContractModal" class="modal-backdrop" @click.self="showContractModal = false">
-    <div class="modal modal-wide">
-      <div class="modal-head">
-        <div>
-          <p class="eyebrow">NEW ANNUAL CONTRACT</p>
-          <h2>年間契約を登録</h2>
+    <div v-if="showShopModal" class="modal-backdrop" @click.self="showShopModal = false">
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">NEW STORE</p>
+            <h2>店舗を登録</h2>
+          </div>
+          <button class="close" @click="showShopModal = false">×</button>
         </div>
-        <button class="close" @click="showContractModal = false">×</button>
-      </div>
-      <div class="detail-grid">
-        <div>
-          <label>顧客</label
-          ><input
-            v-model="contractForm.customer"
-            list="customer-options"
-            placeholder="顧客名を入力して検索"
-          />
+        <label>店舗名</label><input v-model="newShopName" placeholder="例：大阪店" /><label
+          >住所</label
+        ><input v-model="newShopAddress" placeholder="住所" /><label>電話番号</label
+        ><input v-model="newShopPhone" placeholder="電話番号" />
+        <div class="modal-actions">
+          <button class="outline" @click="showShopModal = false">キャンセル</button
+          ><button class="primary" @click="addShop">店舗を登録</button>
         </div>
-        <div><label>メーカー</label><input v-model="contractForm.maker" /></div>
-        <div><label>モデル</label><input v-model="contractForm.model" /></div>
-        <div><label>年式</label><input v-model.number="contractForm.year" type="number" /></div>
-        <div><label>車体番号</label><input v-model="contractForm.serial" /></div>
-        <div>
-          <label>契約プラン</label
-          ><select v-model.number="contractForm.planId">
-            <option v-for="p in plans" :key="p.id" :value="p.id">
-              {{ p.name }}（OH {{ p.overhaulCount }} / メンテ {{ p.maintenanceCount }} / 点検
-              {{ p.inspectionCount }}）
-            </option>
-          </select>
-        </div>
-        <div>
-          <label>契約受付日</label><input v-model="contractForm.applicationDate" type="date" />
-        </div>
-        <div><label>契約開始日</label><input v-model="contractForm.start" type="date" /></div>
-        <div>
-          <label>担当店舗</label
-          ><select v-model.number="contractForm.shopId">
-            <option v-for="shop in shops" :key="shop.id" :value="shop.id">{{ shop.name }}</option>
-          </select>
-        </div>
-        <div>
-          <label>受付担当者</label
-          ><select v-model="contractForm.receptionist">
-            <option
-              v-for="person in staff.filter((x) => x.shopId === contractForm.shopId)"
-              :key="person.id"
-            >
-              {{ person.name }}
-            </option>
-          </select>
-        </div>
-      </div>
-      <div class="modal-note">
-        契約受付期限は契約開始年の12月31日。契約期間は12月1日〜翌年11月30日です。
-      </div>
-      <div class="modal-actions">
-        <button class="outline" @click="showContractModal = false">キャンセル</button
-        ><button class="primary" @click="addContract">契約を登録してOH予定へ進む</button>
       </div>
     </div>
-  </div>
-  <div v-if="showShopModal" class="modal-backdrop" @click.self="showShopModal = false">
-    <div class="modal">
-      <div class="modal-head">
-        <div>
-          <p class="eyebrow">NEW STORE</p>
-          <h2>店舗を登録</h2>
+    <div v-if="showStaffModal" class="modal-backdrop" @click.self="showStaffModal = false">
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">NEW STAFF</p>
+            <h2>受付担当者を登録</h2>
+          </div>
+          <button class="close" @click="showStaffModal = false">×</button>
         </div>
-        <button class="close" @click="showShopModal = false">×</button>
-      </div>
-      <label>店舗名</label><input v-model="newShopName" placeholder="例：大阪店" /><label
-        >住所</label
-      ><input v-model="newShopAddress" placeholder="住所" /><label>電話番号</label
-      ><input v-model="newShopPhone" placeholder="電話番号" />
-      <div class="modal-actions">
-        <button class="outline" @click="showShopModal = false">キャンセル</button
-        ><button class="primary" @click="addShop">店舗を登録</button>
+        <label>所属店舗</label
+        ><select v-model.number="newStaffShop">
+          <option v-for="shop in shops" :key="shop.id" :value="shop.id">
+            {{ shop.name }}
+          </option></select
+        ><label>担当者名</label><input v-model="newStaffName" placeholder="担当者名" />
+        <div class="modal-actions">
+          <button class="outline" @click="showStaffModal = false">キャンセル</button
+          ><button class="primary" @click="addStaff">担当者を登録</button>
+        </div>
       </div>
     </div>
-  </div>
-  <div v-if="showStaffModal" class="modal-backdrop" @click.self="showStaffModal = false">
-    <div class="modal">
-      <div class="modal-head">
-        <div>
-          <p class="eyebrow">NEW STAFF</p>
-          <h2>受付担当者を登録</h2>
+    <div v-if="showPlanModal" class="modal-backdrop" @click.self="showPlanModal = false">
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">NEW PLAN</p>
+            <h2>プランを追加</h2>
+          </div>
+          <button class="close" @click="showPlanModal = false">×</button>
         </div>
-        <button class="close" @click="showStaffModal = false">×</button>
-      </div>
-      <label>所属店舗</label
-      ><select v-model.number="newStaffShop">
-        <option v-for="shop in shops" :key="shop.id" :value="shop.id">
-          {{ shop.name }}
-        </option></select
-      ><label>担当者名</label><input v-model="newStaffName" placeholder="担当者名" />
-      <div class="modal-actions">
-        <button class="outline" @click="showStaffModal = false">キャンセル</button
-        ><button class="primary" @click="addStaff">担当者を登録</button>
+        <label>プラン名</label
+        ><input v-model="newPlan.name" placeholder="例：競技者向けプラン" /><label
+          >オーバーホール回数</label
+        ><input v-model.number="newPlan.overhaulCount" type="number" min="0" step="1" /><label
+          >メンテナンス回数</label
+        ><input v-model.number="newPlan.maintenanceCount" type="number" min="0" step="1" /><label
+          >点検サポート回数</label
+        ><input v-model.number="newPlan.inspectionCount" type="number" min="0" step="1" />
+        <div class="modal-note">回数はそれぞれ独立して設定します。</div>
+        <div class="modal-actions">
+          <button class="outline" @click="showPlanModal = false">キャンセル</button
+          ><button class="primary" @click="addPlan">プランを追加</button>
+        </div>
       </div>
     </div>
-  </div>
-  <div v-if="showPlanModal" class="modal-backdrop" @click.self="showPlanModal = false">
-    <div class="modal">
-      <div class="modal-head">
-        <div>
-          <p class="eyebrow">NEW PLAN</p>
-          <h2>プランを追加</h2>
+    <div v-if="showOverhaulModal" class="modal-backdrop" @click.self="showOverhaulModal = false">
+      <div class="modal modal-wide">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">NEW OVERHAUL</p>
+            <h2>オーバーホールを登録</h2>
+          </div>
+          <button class="close" @click="showOverhaulModal = false">×</button>
         </div>
-        <button class="close" @click="showPlanModal = false">×</button>
-      </div>
-      <label>プラン名</label
-      ><input v-model="newPlan.name" placeholder="例：競技者向けプラン" /><label
-        >オーバーホール回数</label
-      ><input v-model.number="newPlan.overhaulCount" type="number" min="0" step="1" /><label
-        >メンテナンス回数</label
-      ><input v-model.number="newPlan.maintenanceCount" type="number" min="0" step="1" /><label
-        >点検サポート回数</label
-      ><input v-model.number="newPlan.inspectionCount" type="number" min="0" step="1" />
-      <div class="modal-note">回数はそれぞれ独立して設定します。</div>
-      <div class="modal-actions">
-        <button class="outline" @click="showPlanModal = false">キャンセル</button
-        ><button class="primary" @click="addPlan">プランを追加</button>
-      </div>
-    </div>
-  </div>
-  <div v-if="showOverhaulModal" class="modal-backdrop" @click.self="showOverhaulModal = false">
-    <div class="modal modal-wide">
-      <div class="modal-head">
-        <div>
-          <p class="eyebrow">NEW OVERHAUL</p>
-          <h2>オーバーホールを登録</h2>
+        <div class="detail-grid">
+          <div>
+            <label>顧客・自転車</label
+            ><input
+              v-model="overhaulBikeSearch"
+              @change="setBikeFromLabel(overhaulBikeSearch, 'overhaul')"
+              list="bike-options"
+              placeholder="顧客名・自転車名を入力して検索"
+            />
+          </div>
+          <div><label>受付日</label><input v-model="newOverhaulReceptionDate" type="date" /></div>
+          <div><label>作業開始予定日</label><input v-model="newOverhaulDate" type="date" /></div>
+          <div><label>作業完了予定日</label><input v-model="newOverhaulEndDate" type="date" /></div>
+          <div><label>作業名</label><input v-model="newOverhaulTitle" /></div>
+          <div><label>作業内容</label><input v-model="newOverhaulDetail" /></div>
         </div>
-        <button class="close" @click="showOverhaulModal = false">×</button>
-      </div>
-      <div class="detail-grid">
-        <div>
-          <label>顧客・自転車</label
-          ><input
-            v-model="overhaulBikeSearch"
-            @change="setBikeFromLabel(overhaulBikeSearch, 'overhaul')"
-            list="bike-options"
-            placeholder="顧客名・自転車名を入力して検索"
-          />
+        <div class="modal-note">
+          受付期限は契約開始年の12月31日。実施期間は契約開始年11月〜翌年2月末です。新規登録可能：{{
+            bikes.find((b) => b.id === newOverhaulBike)
+              ? scheduleRemaining(
+                  bikes.find((b) => b.id === newOverhaulBike)!,
+                  'overhaul'
+                )
+              : 0
+          }}
+          / 契約枠
+          {{
+            bikes.find((b) => b.id === newOverhaulBike)
+              ? planFor(bikes.find((b) => b.id === newOverhaulBike)!).overhaulCount
+              : 0
+          }}回（予定・完了を含む）
         </div>
-        <div><label>受付日</label><input v-model="newOverhaulReceptionDate" type="date" /></div>
-        <div><label>作業開始予定日</label><input v-model="newOverhaulDate" type="date" /></div>
-        <div><label>作業完了予定日</label><input v-model="newOverhaulEndDate" type="date" /></div>
-        <div><label>作業名</label><input v-model="newOverhaulTitle" /></div>
-        <div><label>作業内容</label><input v-model="newOverhaulDetail" /></div>
-      </div>
-      <div class="modal-note">
-        受付期限は契約開始年の12月31日。実施期間は契約開始年11月〜翌年2月末です。新規登録可能：{{
-          bikes.find((b) => b.id === newOverhaulBike)
-            ? scheduleRemaining(
+        <div class="modal-actions">
+          <button class="outline" @click="showOverhaulModal = false">キャンセル</button
+          ><button
+            class="primary"
+            :disabled="
+              !bikes.find((b) => b.id === newOverhaulBike) ||
+              scheduleRemaining(
                 bikes.find((b) => b.id === newOverhaulBike)!,
                 'overhaul'
-              )
-            : 0
-        }}
-        / 契約枠
-        {{
-          bikes.find((b) => b.id === newOverhaulBike)
-            ? planFor(bikes.find((b) => b.id === newOverhaulBike)!).overhaulCount
-            : 0
-        }}回（予定・完了を含む）
-      </div>
-      <div class="modal-actions">
-        <button class="outline" @click="showOverhaulModal = false">キャンセル</button
-        ><button
-          class="primary"
-          :disabled="
-            !bikes.find((b) => b.id === newOverhaulBike) ||
-            scheduleRemaining(
-              bikes.find((b) => b.id === newOverhaulBike)!,
-              'overhaul'
-            ) <= 0
-          "
-          @click="addOverhaul"
-        >
-          オーバーホールを登録
-        </button>
+              ) <= 0
+            "
+            @click="addOverhaul"
+          >
+            オーバーホールを登録
+          </button>
+        </div>
       </div>
     </div>
-  </div>
-  <div
-    v-if="showMaintenanceModal"
-    class="modal-backdrop"
-    @click.self="showMaintenanceModal = false"
-  >
-    <div class="modal modal-wide">
-      <div class="modal-head">
-        <div>
-          <p class="eyebrow">NEW MAINTENANCE</p>
-          <h2>メンテナンス計画を追加</h2>
+    <div
+      v-if="showMaintenanceModal"
+      class="modal-backdrop"
+      @click.self="showMaintenanceModal = false"
+    >
+      <div class="modal modal-wide">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">NEW MAINTENANCE</p>
+            <h2>メンテナンス計画を追加</h2>
+          </div>
+          <button class="close" @click="showMaintenanceModal = false">×</button>
         </div>
-        <button class="close" @click="showMaintenanceModal = false">×</button>
-      </div>
-      <div class="detail-grid">
-        <div>
-          <label>顧客・自転車</label
-          ><input
-            v-model="maintenanceBikeSearch"
-            @change="setBikeFromLabel(maintenanceBikeSearch, 'maintenance')"
-            list="bike-options"
-            placeholder="顧客名・自転車名を入力して検索"
-          />
+        <div class="detail-grid">
+          <div>
+            <label>顧客・自転車</label
+            ><input
+              v-model="maintenanceBikeSearch"
+              @change="setBikeFromLabel(maintenanceBikeSearch, 'maintenance')"
+              list="bike-options"
+              placeholder="顧客名・自転車名を入力して検索"
+            />
+          </div>
+          <div><label>作業開始予定日</label><input v-model="newWorkDate" type="date" /></div>
+          <div><label>作業完了予定日</label><input v-model="newWorkEndDate" type="date" /></div>
+          <div><label>計画名</label><input v-model="newWorkTitle" /></div>
+          <div><label>作業内容</label><input v-model="newWorkDetail" /></div>
         </div>
-        <div><label>作業開始予定日</label><input v-model="newWorkDate" type="date" /></div>
-        <div><label>作業完了予定日</label><input v-model="newWorkEndDate" type="date" /></div>
-        <div><label>計画名</label><input v-model="newWorkTitle" /></div>
-        <div><label>作業内容</label><input v-model="newWorkDetail" /></div>
-      </div>
-      <div class="modal-note">
-        新規登録可能：{{
-          bikes.find((b) => b.id === newWorkBike)
-            ? scheduleRemaining(
+        <div class="modal-note">
+          新規登録可能：{{
+            bikes.find((b) => b.id === newWorkBike)
+              ? scheduleRemaining(
+                  bikes.find((b) => b.id === newWorkBike)!,
+                  'maintenance'
+                )
+              : 0
+          }}
+          / 契約枠
+          {{
+            bikes.find((b) => b.id === newWorkBike)
+              ? planFor(bikes.find((b) => b.id === newWorkBike)!).maintenanceCount
+              : 0
+          }}回（予定・完了を含む）
+        </div>
+        <div class="modal-actions">
+          <button class="outline" @click="showMaintenanceModal = false">キャンセル</button
+          ><button
+            class="primary"
+            :disabled="
+              !bikes.find((b) => b.id === newWorkBike) ||
+              scheduleRemaining(
                 bikes.find((b) => b.id === newWorkBike)!,
                 'maintenance'
-              )
-            : 0
-        }}
-        / 契約枠
-        {{
-          bikes.find((b) => b.id === newWorkBike)
-            ? planFor(bikes.find((b) => b.id === newWorkBike)!).maintenanceCount
-            : 0
-        }}回（予定・完了を含む）
-      </div>
-      <div class="modal-actions">
-        <button class="outline" @click="showMaintenanceModal = false">キャンセル</button
-        ><button
-          class="primary"
-          :disabled="
-            !bikes.find((b) => b.id === newWorkBike) ||
-            scheduleRemaining(
-              bikes.find((b) => b.id === newWorkBike)!,
-              'maintenance'
-            ) <= 0
-          "
-          @click="addMaintenance"
-        >
-          計画を登録
-        </button>
+              ) <= 0
+            "
+            @click="addMaintenance"
+          >
+            計画を登録
+          </button>
+        </div>
       </div>
     </div>
-  </div>
-  <div v-if="showEventModal" class="modal-backdrop" @click.self="showEventModal = false">
-    <div class="modal modal-wide">
-      <div class="modal-head">
-        <div>
-          <p class="eyebrow">NEW EVENT & INSPECTION</p>
-          <h2>イベント・点検を登録</h2>
+    <div v-if="showEventModal" class="modal-backdrop" @click.self="showEventModal = false">
+      <div class="modal modal-wide">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">NEW EVENT & INSPECTION</p>
+            <h2>イベント・点検を登録</h2>
+          </div>
+          <button class="close" @click="showEventModal = false">×</button>
         </div>
-        <button class="close" @click="showEventModal = false">×</button>
-      </div>
-      <div class="detail-grid">
-        <div>
-          <label>顧客・自転車</label
-          ><input
-            v-model="eventBikeSearch"
-            @change="setBikeFromLabel(eventBikeSearch, 'event')"
-            list="bike-options"
-            placeholder="顧客名・自転車名を入力して検索"
-          />
+        <div class="detail-grid">
+          <div>
+            <label>顧客・自転車</label
+            ><input
+              v-model="eventBikeSearch"
+              @change="setBikeFromLabel(eventBikeSearch, 'event')"
+              list="bike-options"
+              placeholder="顧客名・自転車名を入力して検索"
+            />
+          </div>
+          <div>
+            <label>イベント名</label
+            ><input v-model="newEventName" placeholder="例：年間メインイベント" />
+          </div>
+          <div><label>イベント開催日</label><input v-model="newEventDate" type="date" /></div>
+          <div><label>点検開始予定日</label><input v-model="newInspectionDate" type="date" /></div>
+          <div>
+            <label>点検完了予定日</label><input v-model="newInspectionEndDate" type="date" />
+          </div>
         </div>
-        <div>
-          <label>イベント名</label
-          ><input v-model="newEventName" placeholder="例：年間メインイベント" />
+        <div class="modal-note">
+          新規登録可能：{{
+            bikes.find((b) => b.id === newEventBike)
+              ? scheduleRemaining(
+                  bikes.find((b) => b.id === newEventBike)!,
+                  'inspection'
+                )
+              : 0
+          }}
+          / 契約枠
+          {{
+            bikes.find((b) => b.id === newEventBike)
+              ? planFor(bikes.find((b) => b.id === newEventBike)!).inspectionCount
+              : 0
+          }}回（予定・完了を含む）
         </div>
-        <div><label>イベント開催日</label><input v-model="newEventDate" type="date" /></div>
-        <div><label>点検開始予定日</label><input v-model="newInspectionDate" type="date" /></div>
-        <div><label>点検完了予定日</label><input v-model="newInspectionEndDate" type="date" /></div>
-      </div>
-      <div class="modal-note">
-        新規登録可能：{{
-          bikes.find((b) => b.id === newEventBike)
-            ? scheduleRemaining(
+        <div class="modal-actions">
+          <button class="outline" @click="showEventModal = false">キャンセル</button
+          ><button
+            class="primary"
+            :disabled="
+              !bikes.find((b) => b.id === newEventBike) ||
+              scheduleRemaining(
                 bikes.find((b) => b.id === newEventBike)!,
                 'inspection'
-              )
-            : 0
-        }}
-        / 契約枠
-        {{
-          bikes.find((b) => b.id === newEventBike)
-            ? planFor(bikes.find((b) => b.id === newEventBike)!).inspectionCount
-            : 0
-        }}回（予定・完了を含む）
-      </div>
-      <div class="modal-actions">
-        <button class="outline" @click="showEventModal = false">キャンセル</button
-        ><button
-          class="primary"
-          :disabled="
-            !bikes.find((b) => b.id === newEventBike) ||
-            scheduleRemaining(
-              bikes.find((b) => b.id === newEventBike)!,
-              'inspection'
-            ) <= 0
-          "
-          @click="addEvent"
-        >
-          イベント・点検を登録
-        </button>
-      </div>
-    </div>
-  </div>
-  <div v-if="completionTarget" class="modal-backdrop" @click.self="completionTarget = null">
-    <div class="modal">
-      <div class="modal-head">
-        <div>
-          <p class="eyebrow">WORK COMPLETION</p>
-          <h2>作業完了・メモ登録</h2>
+              ) <= 0
+            "
+            @click="addEvent"
+          >
+            イベント・点検を登録
+          </button>
         </div>
-        <button class="close" @click="completionTarget = null">×</button>
-      </div>
-      <p class="sub">作業内容や交換部品、調整箇所、次回確認事項などを記録できます。</p>
-      <label>作業完了日</label><input v-model="completionDate" type="date" /><label
-        >作業時のメモ</label
-      ><textarea
-        v-model="completionMemo"
-        rows="6"
-        placeholder="例：チェーン・スプロケットを洗浄。リアブレーキパッド交換。変速調整済み。次回はタイヤ摩耗を確認。"
-      ></textarea>
-      <div class="modal-note">
-        メモは作業履歴に保存され、後から「メンテナンス履歴」画面で確認できます。
-      </div>
-      <div class="modal-actions">
-        <button class="outline" @click="completionTarget = null">キャンセル</button
-        ><button class="primary" @click="confirmCompletion">作業完了として保存</button>
       </div>
     </div>
-  </div>
-  <div v-if="editTarget" class="modal-backdrop" @click.self="editTarget = null">
-    <div class="modal">
-      <div class="modal-head">
-        <div>
-          <p class="eyebrow">EDIT SCHEDULE</p>
-          <h2>予定の変更</h2>
+    <div v-if="completionTarget" class="modal-backdrop" @click.self="completionTarget = null">
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">WORK COMPLETION</p>
+            <h2>作業完了・メモ登録</h2>
+          </div>
+          <button class="close" @click="completionTarget = null">×</button>
         </div>
-        <button class="close" @click="editTarget = null">×</button>
-      </div>
-      <label>作業開始日</label><input v-model="editDate" type="date" /><label>作業完了予定日</label
-      ><input v-model="editEndDate" type="date" /><label>予定名・イベント名</label
-      ><input v-model="editTitle" /><label>内容・メモ</label><input v-model="editDetail" /><label
-        >受付担当者</label
-      ><select v-model="editReceptionist">
-        <option v-for="person in staff" :key="person.id">{{ person.name }}</option>
-      </select>
-      <div class="modal-note">
-        開始日・完了予定日を変更できます。完了日は開始日以降にしてください。契約回数は作業完了時のみ消費します。
-      </div>
-      <div class="modal-actions">
-        <button class="outline" @click="editTarget = null">キャンセル</button
-        ><button class="primary" @click="saveEdit">変更を保存</button>
-      </div>
-    </div>
-  </div>
-  <div v-if="showMail" class="modal-backdrop" @click.self="showMail = false">
-    <div class="modal">
-      <div class="modal-head">
-        <div>
-          <p class="eyebrow">EMAIL PREVIEW</p>
-          <h2>メンテナンス案内メール</h2>
+        <p class="sub">作業内容や交換部品、調整箇所、次回確認事項などを記録できます。</p>
+        <label>作業完了日</label><input v-model="completionDate" type="date" /><label
+          >作業時のメモ</label
+        ><textarea
+          v-model="completionMemo"
+          rows="6"
+          placeholder="例：チェーン・スプロケットを洗浄。リアブレーキパッド交換。変速調整済み。次回はタイヤ摩耗を確認。"
+        ></textarea>
+        <div class="modal-note">
+          メモは作業履歴に保存され、後から「メンテナンス履歴」画面で確認できます。
         </div>
-        <button class="close" @click="showMail = false">×</button>
-      </div>
-      <label>送信先</label
-      ><select v-model="mailTarget">
-        <option v-for="c in customers" :key="c.name">{{ c.name }}</option></select
-      ><label>件名</label><input v-model="mailKind" /><label>本文</label>
-      <div class="mail-body">
-        {{ mailTarget }}
-        様<br /><br />いつもご利用いただきありがとうございます。<br />メンテナンス・点検予定についてご案内いたします。<br /><br />ご希望の日程がございましたら店舗までご連絡ください。<br /><br />今後ともよろしくお願いいたします。
-      </div>
-      <div class="modal-note">※ モックのため、実際のメール送信は行われません。</div>
-      <div class="modal-actions">
-        <button class="outline" @click="showMail = false">閉じる</button
-        ><button class="primary" @click="sendMail">送信（デモ）</button>
+        <div class="modal-actions">
+          <button class="outline" @click="completionTarget = null">キャンセル</button
+          ><button class="primary" @click="confirmCompletion">作業完了として保存</button>
+        </div>
       </div>
     </div>
-  </div>
-  <datalist id="customer-options">
-    <option v-for="c in customers" :key="c.name" :value="c.name" /></datalist
-  ><datalist id="bike-options">
-    <option v-for="b in bikes" :key="b.id" :value="bikeLabel(b.id)" />
-  </datalist>
+    <div v-if="editTarget" class="modal-backdrop" @click.self="editTarget = null">
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">EDIT SCHEDULE</p>
+            <h2>予定の変更</h2>
+          </div>
+          <button class="close" @click="editTarget = null">×</button>
+        </div>
+        <label>作業開始日</label><input v-model="editDate" type="date" /><label
+          >作業完了予定日</label
+        ><input v-model="editEndDate" type="date" /><label>予定名・イベント名</label
+        ><input v-model="editTitle" /><label>内容・メモ</label><input v-model="editDetail" /><label
+          >受付担当者</label
+        ><select v-model="editReceptionist">
+          <option v-for="person in staff" :key="person.id">{{ person.name }}</option>
+        </select>
+        <div class="modal-note">
+          開始日・完了予定日を変更できます。完了日は開始日以降にしてください。契約回数は作業完了時のみ消費します。
+        </div>
+        <div class="modal-actions">
+          <button class="outline" @click="editTarget = null">キャンセル</button
+          ><button class="primary" @click="saveEdit">変更を保存</button>
+        </div>
+      </div>
+    </div>
+    <div v-if="showMail" class="modal-backdrop" @click.self="showMail = false">
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">EMAIL PREVIEW</p>
+            <h2>メンテナンス案内メール</h2>
+          </div>
+          <button class="close" @click="showMail = false">×</button>
+        </div>
+        <label>送信先</label
+        ><select v-model="mailTarget">
+          <option v-for="c in customers" :key="c.name">{{ c.name }}</option></select
+        ><label>件名</label><input v-model="mailKind" /><label>本文</label>
+        <div class="mail-body">
+          {{ mailTarget }}
+          様<br /><br />いつもご利用いただきありがとうございます。<br />メンテナンス・点検予定についてご案内いたします。<br /><br />ご希望の日程がございましたら店舗までご連絡ください。<br /><br />今後ともよろしくお願いいたします。
+        </div>
+        <div class="modal-note">※ モックのため、実際のメール送信は行われません。</div>
+        <div class="modal-actions">
+          <button class="outline" @click="showMail = false">閉じる</button
+          ><button class="primary" @click="sendMail">送信（デモ）</button>
+        </div>
+      </div>
+    </div>
+    <datalist id="customer-options">
+      <option v-for="c in customers" :key="c.name" :value="c.name" /></datalist
+    ><datalist id="bike-options">
+      <option v-for="b in bikes" :key="b.id" :value="bikeLabel(b.id)" />
+    </datalist>
+  </template>
 </template>

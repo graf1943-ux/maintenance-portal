@@ -20,6 +20,7 @@ export type Plan = {
 };
 export type Bike = {
   id: number;
+  customerId?: number;
   customer: string;
   maker: string;
   model: string;

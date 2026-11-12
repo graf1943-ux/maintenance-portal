@@ -2,7 +2,7 @@ using RoadbikeCare.Api.Models;
 
 namespace RoadbikeCare.Api.Data;
 
-// Mock implementation. Replace this store with repository + PostgreSQL in the next phase.
+// Mock implementation. Replace this store with repository + Azure SQL in the next phase.
 public sealed class MockDataStore
 {
     public List<Customer> Customers { get; } =

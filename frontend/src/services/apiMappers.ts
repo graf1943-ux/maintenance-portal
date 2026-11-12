@@ -23,6 +23,7 @@ export const dateIso = (v?: string | null) => (v ? String(v).slice(0, 10).replac
 export function mapBike(x: ApiBike, receptionistName: (id: number) => string): Bike {
   return {
     id: x.id,
+    customerId: x.customerId,
     customer: x.customer,
     maker: x.maker,
     model: x.model,

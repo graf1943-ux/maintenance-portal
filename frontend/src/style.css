@@ -1129,6 +1129,50 @@ td b {
 .customer-profile-section .panel-head {
   margin-bottom: 10px;
 }
+.customer-identity-section {
+  padding-top: 14px;
+  border-top: 1px solid #e9edf3;
+}
+.customer-identity-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.customer-identity-form label {
+  display: grid;
+  gap: 6px;
+  color: #64748b;
+  font-size: 11px;
+}
+.customer-identity-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #d9e0e8;
+  border-radius: 6px;
+  background: #fff;
+  color: #243246;
+  font: inherit;
+}
+.customer-identity-note,
+.customer-identity-feedback {
+  margin: 8px 0 0;
+  font-size: 11px;
+}
+.customer-identity-note {
+  color: #64748b;
+}
+.customer-identity-feedback.error {
+  color: #b42318;
+}
+.customer-identity-feedback.success {
+  color: #16794b;
+}
+.customer-identity-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
 .customer-profile-bike {
   border: 1px solid #edf0f4;
   border-radius: 8px;
@@ -1161,6 +1205,9 @@ td b {
 }
 @media (max-width: 700px) {
   .customer-profile-summary {
+    grid-template-columns: 1fr;
+  }
+  .customer-identity-form {
     grid-template-columns: 1fr;
   }
   .customer-profile-bike .detail-grid {
@@ -1245,6 +1292,100 @@ td b {
 }
 .customer-bike-register-actions {
   margin-top: 12px;
+}
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background-color: #edf2f3;
+  background-image:
+    linear-gradient(135deg, rgba(33, 77, 84, 0.035) 25%, transparent 25%),
+    linear-gradient(315deg, rgba(33, 77, 84, 0.035) 25%, transparent 25%);
+  background-size: 32px 32px;
+}
+.auth-panel {
+  width: min(100%, 430px);
+  padding: 34px;
+  background: #fff;
+  border: 1px solid #dfe7e7;
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgba(27, 55, 59, 0.1);
+}
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 48px;
+  color: #233d40;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.auth-brand .brand-mark {
+  background: #347b70;
+}
+.auth-panel .eyebrow {
+  color: #347b70;
+}
+.auth-panel h1 {
+  margin: 8px 0 26px;
+  color: #203639;
+  font-size: 24px;
+}
+.auth-options {
+  display: grid;
+  gap: 10px;
+}
+.auth-option {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border: 1px solid #cddbd9;
+  border-radius: 6px;
+  color: #203639;
+  background: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.auth-option:hover:not(:disabled) {
+  border-color: #347b70;
+  background: #f2f8f6;
+}
+.auth-option.staff {
+  border-color: #2a4d5c;
+  color: #fff;
+  background: #2a4d5c;
+}
+.auth-option.staff:hover:not(:disabled) {
+  background: #1d3d4a;
+}
+.auth-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.auth-arrow {
+  font-size: 18px;
+}
+.auth-feedback {
+  margin: 18px 0 0;
+  color: #466160;
+  font-size: 13px;
+}
+.auth-feedback.error {
+  color: #a12626;
+}
+@media (max-width: 480px) {
+  .auth-panel {
+    padding: 26px 22px;
+  }
+  .auth-brand {
+    margin-bottom: 38px;
+  }
 }
 .customer-bike-register-actions button {
   font-size: 11px;

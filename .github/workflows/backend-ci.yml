@@ -1,0 +1,71 @@
+name: Backend CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore backend/RoadbikeCare.Api.Tests/RoadbikeCare.Api.Tests.csproj
+
+      - name: Build backend and tests
+        run: dotnet build backend/RoadbikeCare.Api.Tests/RoadbikeCare.Api.Tests.csproj --configuration Release --no-restore
+
+      - name: Run backend tests
+        env:
+          ConnectionStrings__RoadbikeCare: " "
+        run: dotnet test backend/RoadbikeCare.Api.Tests/RoadbikeCare.Api.Tests.csproj --configuration Release --no-build --logger "trx;LogFileName=backend-tests.trx"
+
+  deploy:
+    name: Deploy API
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-and-test
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Publish and deploy API
+        shell: pwsh
+        env:
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+          AZURE_FRONTEND_ORIGIN: ${{ vars.AZURE_FRONTEND_ORIGIN }}
+        run: |
+          ./backend/deploy-azure.ps1 `
+            -ResourceGroup $env:AZURE_RESOURCE_GROUP `
+            -AppName $env:AZURE_WEBAPP_NAME `
+            -FrontendOrigin $env:AZURE_FRONTEND_ORIGIN

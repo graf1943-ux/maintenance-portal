@@ -18,6 +18,8 @@ swa deploy ./dist --env production --deployment-token $env:SWA_CLI_DEPLOYMENT_TO
 
 ## Azure App Service（バックエンド）
 
+デプロイ前にAzure App Serviceのアプリ設定 `ConnectionStrings__RoadbikeCare` をKey Vault参照として設定し、Azure SQL Databaseへ到達できる環境からSQL Server用EF Coreマイグレーションを適用してください。デプロイスクリプトは接続文字列設定がない場合に中止します。
+
 プロジェクトルートに戻って実行します。
 
 ```powershell

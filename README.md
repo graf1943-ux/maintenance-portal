@@ -1,13 +1,13 @@
 ﻿# ROAD BIKE CARE
 
-ロードバイク年間メンテナンス契約・作業管理モックです。
+ロードバイク年間メンテナンス契約・作業管理アプリです。
 
 ## 構成
 
 - `frontend/` : Vue 3 + TypeScript + Vite のフロントエンド
 - `backend/RoadbikeCare.Api/` : ASP.NET Core 10 Web API
 
-- APIデータ : 起動時にサンプルデータをメモリへロードするインメモリ実装
+- APIデータ : 開発時はサンプルデータを使うインメモリDB、本番はAzure SQL Database
 
 Vue画面は `frontend/.env` の `VITE_USE_MOCK_DATA` でデータ取得元を切り替えます。`true` の場合はVue内のモックデータを表示しAPI通信を行いません。`false` の場合はAPIのみを使用し、接続に失敗してもVueモックへ自動切替しません。画面上部に現在のデータ取得元を表示します。APIモードでは起動時にAPIから各データを取得し、登録・予定変更・作業開始・完了処理もAPI経由で実行します。
 
@@ -24,6 +24,7 @@ dotnet run
 ```
 
 APIは `http://localhost:5080` で起動します。
+Development環境で接続文字列を設定しない場合はEF Core InMemoryへサンプルデータを投入します。再起動すると初期状態に戻ります。DevelopmentでAzure SQL接続を設定した場合はマイグレーションのみを適用し、サンプルデータは投入しません。
 
 - ヘルスチェック: http://localhost:5080/api/health
 - APIリソース一覧: http://localhost:5080/api
@@ -59,7 +60,60 @@ Viteの `/api` リクエストは `http://localhost:5080` にプロキシされ�
 - Azure CLI
 - Azure サブスクリプションへのログイン権限
 - デプロイ先 App Service（Linux / Code / .NET 10）
+- Azure SQL Database と接続可能なネットワーク
 - フロントエンドの Azure Static Web Apps の Origin（例：`https://<your-site>.azurestaticapps.net`）
+
+### Azure SQL Databaseの準備
+
+低頻度・断続的な利用なら、リージョンとワークロード要件が合う場合にAzure SQL DatabaseのGeneral Purpose Serverlessを候補にできます。最小vCore数を抑え、自動一時停止を有効にすると未使用時のコンピューティング費を抑えられますが、再開時の待ち時間が発生し、ストレージ・バックアップ等の費用は別途かかります。常時アクセスされる場合はプロビジョニング済みコンピューティングの方が適することがあります。料金はリージョン、冗長性、ストレージ、バックアップ保持期間を含めてAzure料金計算ツールで比較してください。
+
+Azure SQL logical serverとdatabaseを作成し、アプリとマイグレーション実行端末から接続できるようネットワークとファイアウォールを設定します。コストを抑える場合でも、SQL Serverへの公開アクセスを無制限に許可しないでください。
+
+アプリの本番起動にはAzure SQL用の `ConnectionStrings__RoadbikeCare` が必須です。SQL接続文字列はソース管理せず、App ServiceのKey Vault参照として登録してください。App ServiceのマネージドIDにKey Vault Secrets Userロールを付与したうえで、アプリ設定を登録します。接続文字列はAzure SQL Databaseのサーバー名・DB名・認証方式に合わせて作成し、暗号化を有効にしてください。
+
+```powershell
+az webapp config appsettings set --resource-group "<resource-group>" --name "<app-name>" --settings `
+  "ConnectionStrings__RoadbikeCare=@Microsoft.KeyVault(SecretUri=https://<vault>.vault.azure.net/secrets/RoadbikeCareConnection/)"
+```
+
+Azure SQLへ到達できる管理端末から、初回デプロイ前にSQL Server用マイグレーションを適用します。次の例はKey Vaultから値をプロセス環境へ読み込み、コマンド出力には表示しません。
+
+```powershell
+$env:ConnectionStrings__RoadbikeCare = az keyvault secret show --vault-name "<vault>" --name "RoadbikeCareConnection" --query value --output tsv
+dotnet tool restore
+dotnet ef database update `
+  --project backend/RoadbikeCare.Api/RoadbikeCare.Api.csproj `
+  --startup-project backend/RoadbikeCare.Api/RoadbikeCare.Api.csproj
+Remove-Item Env:ConnectionStrings__RoadbikeCare
+```
+
+API起動時に本番スキーマを自動変更することはありません。デプロイスクリプトは、`ConnectionStrings__RoadbikeCare` 設定がない場合にデプロイを中止します。PostgreSQL用マイグレーションおよび既存PostgreSQLデータベースからの自動変換は行いません。
+
+### Entra ID認証の設定
+
+APIは顧客用Microsoft Entra External IDとスタッフ用の社内Entra IDを別々に検証します。APIの保護対象ルートは認証必須で、`/`、`/api`、`/api/health` のみ匿名アクセス可能です。APIアプリ登録で委任スコープを公開し、顧客・スタッフそれぞれのSPAアプリ登録に許可してください。APIが受け取るAccess Tokenの `aud` をAudience、メタデータ取得に使うURLをAuthority、Access Tokenの `iss` と完全一致する値をIssuerに設定します。
+
+各SPAアプリ登録の認証設定には、リダイレクトURIを追加してください。ローカルは `http://localhost:5173`、本番は `https://<フロントエンドのホスト名>` です。顧客用・スタッフ用の両方に、それぞれ利用する環境のURIを登録します。ローカルで5173番ポートが使用中の場合、Viteは別ポートへ切り替えず起動エラーになります。
+
+スタッフ用APIアプリ登録には `Staff` と `StaffAdmin` のアプリロールを定義します。スタッフには `Staff`、顧客ID紐付けとスタッフ名簿の管理担当者には `StaffAdmin` を割り当ててください。顧客用External ID Authorityで検証されたトークンはAPIが `Customer` として扱うため、顧客へのアプリロール割り当ては不要です。スタッフのロールはAccess Tokenの `roles` クレームから判定します。
+
+App Serviceには次の6設定を登録します。Authority、Issuer、Audienceは実際に発行されたAPI Access TokenとOIDCメタデータに合わせてください。Issuerは末尾の `/` を含め、トークンの `iss` と完全一致させます。
+
+```powershell
+az webapp config appsettings set --resource-group "<resource-group>" --name "<app-name>" --settings `
+  "Authentication__Staff__Authority=<staff-authority>" `
+  "Authentication__Staff__Issuer=<exact-staff-token-iss>" `
+  "Authentication__Staff__Audience=<staff-token-aud>" `
+  "Authentication__Customer__Authority=<customer-authority>" `
+  "Authentication__Customer__Issuer=<exact-customer-token-iss>" `
+  "Authentication__Customer__Audience=<customer-token-aud>"
+```
+
+ローカルでAPIモードを使う場合も同じ6設定をAPIプロセス環境へ渡し、フロントエンドのVite環境変数も設定してください。Development環境では設定不足での起動は許可しますが、正しいBearer Token検証には実値が必要です。VueモックモードはEntra設定なしで利用できます。
+
+フロントエンドのStatic Web Appsビルドには、顧客・スタッフ用それぞれのSPA Client ID、Authority、API scopeを `VITE_ENTRA_CUSTOMER_CLIENT_ID`、`VITE_ENTRA_CUSTOMER_AUTHORITY`、`VITE_ENTRA_CUSTOMER_API_SCOPE`、`VITE_ENTRA_STAFF_CLIENT_ID`、`VITE_ENTRA_STAFF_AUTHORITY`、`VITE_ENTRA_STAFF_API_SCOPE` として登録します。External IDでknown authorityが必要な構成では `VITE_ENTRA_CUSTOMER_KNOWN_AUTHORITY` も設定してください。これらはビルド時に公開JavaScriptへ含まれる値であり、クライアントシークレットは設定しないでください。
+
+DBマイグレーション適用後、管理者権限のAccess Tokenを使い、顧客レコードとExternal IDの `tid`（Tenant ID）・`oid`（Object ID）を `/api/customers/{id}/identity` のPUTで紐付けます。メールアドレスは変更可能なため、本人識別キーとして使用しません。1つのExternal IDは1顧客にのみ紐付けられます。未紐付け顧客はサインインできても `/api/me` が403を返します。
 
 ### App Service の作成（まだ作成していない場合）
 
@@ -76,7 +130,26 @@ az webapp create --name "<世界で一意なApp Service名>" --resource-group "<
 
 料金を抑える場合は利用可能なプランを Azure Portal で確認してください。Free/Shared プランには機能・稼働制限があります。継続的な検証には Basic 以上が扱いやすい構成です。
 
-### API のデプロイ
+### GitHub Actions からの API 自動デプロイ
+
+`.github/workflows/backend-ci.yml` はPull Request時にバックエンドのビルドとテストを実行し、`main`へのpush時はそれらが成功した後にApp Serviceへ自動デプロイします。Azure認証にはOIDCを使い、長期パスワードやPublish ProfileはGitHubへ登録しません。
+
+最初にAzureのアプリ登録へGitHub Actions用のFederated credentialを追加します。Issuerは `https://token.actions.githubusercontent.com`、Audienceは `api://AzureADTokenExchange`、Subjectは `repo:<GitHub所有者>/<リポジトリ名>:ref:refs/heads/main` です。このアプリ登録に対応するサービスプリンシパルへ、対象App Serviceのスコープで `Website Contributor` ロールを割り当てます。
+
+GitHubリポジトリの **Settings > Secrets and variables > Actions > Variables** に次の変数を登録します。
+
+| Variable | 値 |
+|---|---|
+| `AZURE_CLIENT_ID` | Azureアプリ登録のApplication (client) ID |
+| `AZURE_TENANT_ID` | Microsoft Entra tenant ID |
+| `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
+| `AZURE_RESOURCE_GROUP` | App Serviceがあるリソースグループ名 |
+| `AZURE_WEBAPP_NAME` | App Service名 |
+| `AZURE_FRONTEND_ORIGIN` | Static Web AppsのOrigin。例：`https://<site>.azurestaticapps.net` |
+
+デプロイ前にApp Serviceへ `ConnectionStrings__RoadbikeCare`（Key Vault参照）と6つの `Authentication__Staff__*` / `Authentication__Customer__*` 設定を登録してください。App Serviceの.NET 10ランタイム設定とAzure SQLへのネットワーク接続も必要です。ワークフローは既存の `backend/deploy-azure.ps1` を実行し、設定を検査してからRelease発行・デプロイとCORS設定を行います。データベースマイグレーションは自動実行しないため、必要な場合は別途適用してください。
+
+### 手動での API デプロイ
 
 プロジェクトルートで PowerShell を開き、次を実行します。
 
@@ -97,10 +170,11 @@ AppName には App Service のリソース名（例：`my-api-name`）を指定�
 
 ```powershell
 Invoke-RestMethod "https://<App Service名>.azurewebsites.net/api/health"
-Invoke-RestMethod "https://<App Service名>.azurewebsites.net/api/customers"
 ```
 
-`/api/health` で `status: ok` が返ることを確認してください。デプロイスクリプトで HTTPS Only も有効化します。
+`/api/health` で `status: ok` が返ることを確認してください。保護されたAPIの確認はSPAからサインインして行います。Access Tokenを別の承認済みクライアントで取得した場合は、そのBearer Tokenを `/api/me` などへ送って確認してください。デプロイスクリプトで HTTPS Only も有効化します。
+
+Swagger UIはDevelopment環境で `https://<APIホスト>/swagger`（ローカルは `http://localhost:5080/swagger`）から利用できます。Swagger UIのAuthorizeにEntra IDのAPI access tokenを入力すると、保護されたAPIを試せます。本番では既定で無効です。一時的に公開する場合はApp Service設定に `Swagger__Enabled=true` を追加し、利用後に削除してください。
 
 ### フロントエンドから API を呼び出す
 
@@ -109,6 +183,13 @@ Invoke-RestMethod "https://<App Service名>.azurewebsites.net/api/customers"
 ```env
 VITE_USE_MOCK_DATA=false
 VITE_API_BASE_URL=https://<App Service名>.azurewebsites.net/api
+VITE_ENTRA_CUSTOMER_CLIENT_ID=<customer-spa-client-id>
+VITE_ENTRA_CUSTOMER_AUTHORITY=<customer-authority>
+VITE_ENTRA_CUSTOMER_API_SCOPE=<api-scope-uri>
+VITE_ENTRA_CUSTOMER_KNOWN_AUTHORITY=<external-id-domain>
+VITE_ENTRA_STAFF_CLIENT_ID=<staff-spa-client-id>
+VITE_ENTRA_STAFF_AUTHORITY=<staff-authority>
+VITE_ENTRA_STAFF_API_SCOPE=<api-scope-uri>
 ```
 
 `VITE_API_BASE_URL` は Vite のビルド時に埋め込まれるため、設定を変更したら Static Web Apps のフロントエンドを再ビルド・再デプロイしてください。Azure Static Web Apps の GitHub Actions を使っている場合は、ワークフローの build job に環境変数として設定します。値は API の URL なので秘密情報ではありません。
@@ -117,10 +198,11 @@ CORS は App Service の `Cors__AllowedOrigins__0` に Static Web Apps の Origi
 
 ### この段階の制約
 
-- データは API プロセスのメモリ内だけに保持され、再起動・再デプロイで初期データに戻ります。
-- 複数インスタンス間でデータは共有されません。スケールアウトは行わないでください。
-- 認証・認可が未実装です。URLを知る第三者から API を操作できるため、実顧客情報や本番データを登録しないでください。
-- このデプロイは開発・結合テスト用です。本番運用前に PostgreSQL、認証・権限管理、バックアップ、監査ログを実装してください。
+- Azure SQL接続設定と初回マイグレーション適用が必要です。`/api/health` はDB接続不可時に503を返します。
+- ローカルDevelopmentはInMemory DBのため、再起動するとサンプルデータへ戻ります。
+- 認証テナント、API Audience/Scope、スタッフアプリロール、顧客IDの初期紐付けはデプロイ前に設定してください。認証値が不完全な本番APIは起動しません。
+- 顧客は紐付けられた自分の顧客・自転車・契約・予定・履歴だけを参照でき、登録・更新・削除はできません。スタッフは業務データを操作でき、スタッフアカウントの管理と顧客ID紐付けは `StaffAdmin` のみ可能です。
+- バックアップと監査ログは未実装です。別途運用要件を定めてください。
 
 ## API一覧
 
@@ -128,6 +210,8 @@ CORS は App Service の `Cors__AllowedOrigins__0` に Static Web Apps の Origi
 |---|---|---|
 | GET / POST | `/api/customers` | 顧客一覧・登録 |
 | GET / PUT / DELETE | `/api/customers/{id}` | 顧客詳細・更新・削除 |
+| PUT | `/api/customers/{id}/identity` | StaffAdminによるEntra顧客ID紐付け |
+| GET | `/api/me` | 認証済みユーザー情報 |
 | GET / POST | `/api/bikes` | 自転車一覧・登録 |
 | GET / PUT / DELETE | `/api/bikes/{id}` | 自転車詳細・更新・削除 |
 | GET / POST | `/api/shops` | 店舗一覧・登録 |
@@ -147,31 +231,37 @@ CORS は App Service の `Cors__AllowedOrigins__0` に Static Web Apps の Origi
 | POST | `/api/events/{id}/complete` | 点検完了 |
 | GET | `/api/history` | 作業履歴一覧 |
 
+## バックエンド統合テスト
+
+プロジェクトルートから次を実行します。
+
+```powershell
+dotnet test backend/RoadbikeCare.Api.Tests/RoadbikeCare.Api.Tests.csproj
+```
+
+テストは `WebApplicationFactory` とDevelopment用InMemory DBを使うため、Azure SQL接続やマイグレーション適用は不要です。未認証アクセス拒否、スタッフ権限、顧客ID紐付けと顧客間のデータ分離、顧客による書き込み拒否に加え、契約・作業完了のHTTPフローを検証します。実際のEntraテナント設定と本番DB接続・トランザクション動作は別途Azure環境で確認してください。
+
 ## 動作確認例（PowerShell）
 
 ```powershell
 Invoke-RestMethod http://localhost:5080/api/health
-Invoke-RestMethod http://localhost:5080/api/customers
-Invoke-RestMethod http://localhost:5080/api/bikes
-Invoke-RestMethod http://localhost:5080/api/contracts
-Invoke-RestMethod http://localhost:5080/api/maintenance
 ```
 
-## モック段階の制約
+顧客・自転車・契約などの保護されたAPIは、SPAでサインインした状態で確認してください。APIモードにEntra設定がない場合は、認証付き統合テストを `dotnet test backend/RoadbikeCare.Api.Tests/RoadbikeCare.Api.Tests.csproj` で実行できます。
 
-- データはAPIプロセスのメモリ内に保持されます。APIを再起動するとサンプルデータに戻ります。
-- 認証・権限管理、実メール送信、PostgreSQL永続化は未実装です。
-- 複数ユーザーが同時に更新する場合の排他制御は未実装です。
-- 作業完了APIは完了状態・履歴・契約回数をまとめて更新します。モック実装のため、PostgreSQL移行時にはDBトランザクションで実装します。
-- サンプルデータは画面モックと同じ顧客・自転車・契約・予定を中心に用意しています。
+## 開発データの制約
+
+- 開発用サンプルデータはInMemory DBにのみ投入します。本番Azure SQLにはサンプルデータを投入しません。
+- 作業・点検の完了と契約回数・履歴の更新はAzure SQLのSerializableトランザクションで実行します。
+- バックアップと監査ログは別途導入が必要です。
 
 ## フロントエンドの環境設定
 
-ローカル開発では設定不要です。`frontend/vite.config.ts` のViteが `/api` を `http://localhost:5080` に転送します。フロントエンドとAPIを別ホストへ配置する場合は、`frontend/.env` に `VITE_API_BASE_URL` を設定し、APIのCORS許可オリジンも配置先に合わせて変更してください。
+Vueモックモードは設定不要で、API通信も行いません。APIモードは前述の顧客・スタッフ向けEntra設定が必要です。`frontend/vite.config.ts` のViteは `/api` を `http://localhost:5080` に転送します。フロントエンドとAPIを別ホストへ配置する場合は、`frontend/.env` に `VITE_API_BASE_URL` を設定し、APIのCORS許可オリジンも配置先に合わせて変更してください。
 
-## PostgreSQL移行時の方針
+## Azure SQL永続化
 
-APIのルート定義と業務処理を分離し、`MockDataStore` を Repository / Service + PostgreSQL実装へ置き換えます。APIのURLとJSON形式は可能な限り維持し、フロントエンドへの影響を抑えます。
+APIはEF Core SQL Server Providerを介してデータを読み書きします。テーブル変更は `backend/RoadbikeCare.Api/Data/Migrations/` のSQL Serverマイグレーションで管理し、デプロイ前に `dotnet ef database update` を実行します。契約枠の検証・予定登録・作業完了の関連更新はトランザクション内で処理します。APIのURLとJSON形式は維持します。
 
 
 ## データ取得元の切り替え

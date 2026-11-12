@@ -1,3 +1,5 @@
+import { getAccessToken } from './auth';
+
 /**
  * Roadbike Care API client.
  * Vite proxies /api to the ASP.NET Core API during local development.
@@ -23,9 +25,12 @@ export async function apiDelete(path: string): Promise<void> {
 }
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set('Content-Type', 'application/json');
+  headers.set('Authorization', `Bearer ${await getAccessToken()}`);
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...init.headers },
+    headers,
   });
 
   if (!response.ok) {

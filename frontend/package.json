@@ -13,6 +13,7 @@
     "format:backend:check": "dotnet format ../backend/RoadbikeCare.Api/RoadbikeCare.Api.csproj --verify-no-changes"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.29.0",
     "vue": "^3.5.13"
   },
   "devDependencies": {

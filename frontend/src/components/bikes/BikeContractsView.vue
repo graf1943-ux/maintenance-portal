@@ -26,7 +26,7 @@
     'update:searchText': [value: string];
     sort: [];
     'add-contract': [];
-    'open-customer': [name: string];
+    'open-customer': [customer: { id?: number; name: string }];
     'open-bike': [bikeId: number];
   }>();
 </script>
@@ -81,7 +81,12 @@
         <tbody>
           <tr v-for="row in rows" :key="row.bike.id">
             <td>
-              <button class="customer-link" @click="$emit('open-customer', row.bike.customer)">
+              <button
+                class="customer-link"
+                @click="
+                  $emit('open-customer', { id: row.bike.customerId, name: row.bike.customer })
+                "
+              >
                 {{ row.bike.customer }}
                 <small v-if="row.customerBikeCount > 1" class="multi-bike-tag">
                   {{ row.customerBikeCount }}台契約
