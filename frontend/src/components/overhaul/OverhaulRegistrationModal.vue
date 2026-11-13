@@ -3,6 +3,7 @@
   const receptionDate = defineModel<string>('receptionDate', { required: true });
   const startDate = defineModel<string>('startDate', { required: true });
   const endDate = defineModel<string>('endDate', { required: true });
+  const isAdHoc = defineModel<boolean>('isAdHoc', { required: true });
   const title = defineModel<string>('title', { required: true });
   const detail = defineModel<string>('detail', { required: true });
 
@@ -35,23 +36,34 @@
             @change="$emit('bike-change', bikeSearch)"
           />
         </div>
-        <div><label>受付日</label><input v-model="receptionDate" type="date" /></div>
-        <div><label>作業開始予定日</label><input v-model="startDate" type="date" /></div>
-        <div><label>作業完了予定日</label><input v-model="endDate" type="date" /></div>
+        <div>
+          <label>受付日</label>
+          <input v-model="receptionDate" type="date" :disabled="isAdHoc" />
+        </div>
+        <div>
+          <label>作業開始予定日</label>
+          <input v-model="startDate" type="date" :disabled="isAdHoc" />
+        </div>
+        <div>
+          <label>作業完了予定日</label>
+          <input v-model="endDate" type="date" />
+        </div>
         <div><label>作業名</label><input v-model="title" /></div>
         <div><label>作業内容</label><input v-model="detail" /></div>
       </div>
+      <label class="checkbox-label">
+        <input v-model="isAdHoc" type="checkbox" />
+        予約なしの突発作業として受付（受付と同時に作業開始）
+      </label>
       <div class="modal-note">
-        受付期限は契約開始年の12月31日。実施期間は契約開始年11月〜翌年2月末です。新規登録可能：{{
-          availableCount
-        }}
-        / 契約枠 {{ contractLimit }}回（予定・完了を含む）
+        基本実施期間は契約開始年の11月〜翌年2月末です。新規登録可能：{{ availableCount }} / 契約枠
+        {{ contractLimit }}回（予定・完了を含む。キャンセル・中止を除く）
       </div>
       <div class="modal-actions">
         <button class="outline" @click="$emit('close')">キャンセル</button>
         <button
           class="primary"
-          :disabled="!bikeSelected || availableCount <= 0"
+          :disabled="!bikeSelected || availableCount < 1"
           @click="$emit('submit')"
         >
           オーバーホールを登録

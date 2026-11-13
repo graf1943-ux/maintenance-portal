@@ -1,4 +1,5 @@
 <script setup lang="ts">
+  import { t } from '../../locales/ja';
   defineProps<{ pageTitle: string; today: string }>();
 </script>
 
@@ -11,3 +12,4 @@
     </div>
   </header>
 </template>
+{{ t('店') }}

@@ -8,7 +8,7 @@ export const pageTitles: Record<Page, string> = {
   overhaul: 'オーバーホール',
   maintenance: 'メンテナンス計画',
   events: '目標イベント・点検',
-  history: 'メンテナンス履歴',
+  history: '作業履歴',
   messages: '連絡・メール管理',
   mypage: 'マイページ',
 };

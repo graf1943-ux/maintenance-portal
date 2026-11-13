@@ -15,6 +15,7 @@
     date: string;
     endDate?: string;
     status: string;
+    isAdHoc?: boolean;
   };
 
   defineProps<{
@@ -59,19 +60,18 @@
       <div class="bike-symbol">🚴</div>
       <div class="equipment-details">
         <b>{{ card.bike.maker }} {{ card.bike.model }}</b>
-        <small
-          >{{ card.plan.name }} · 契約期間 {{ card.bike.contractStart }}〜{{
-            card.bike.contractEnd
-          }}</small
-        >
-        <small>オーバーホール残 {{ card.remaining.overhaul }}回</small>
-        <small
-          >メンテナンス残 {{ card.remaining.maintenance }} /
-          {{ card.plan.maintenanceCount }}回</small
-        >
-        <small
-          >点検サポート残 {{ card.remaining.inspection }} / {{ card.plan.inspectionCount }}回</small
-        >
+        <small>
+          {{ card.plan.name }} · 契約期間 {{ card.bike.contractStart }}〜{{ card.bike.contractEnd }}
+        </small>
+        <small>
+          オーバーホール残 {{ card.remaining.overhaul }} / {{ card.plan.overhaulCount }}回
+        </small>
+        <small>
+          メンテナンス残 {{ card.remaining.maintenance }} / {{ card.plan.maintenanceCount }}回
+        </small>
+        <small>
+          点検サポート残 {{ card.remaining.inspection }} / {{ card.plan.inspectionCount }}回
+        </small>
       </div>
     </div>
     <div v-if="bikeCards.length === 0" class="empty-state">該当する契約自転車はありません。</div>
@@ -79,7 +79,7 @@
   <section class="panel">
     <div class="panel-head">
       <div>
-        <h2>メンテナンス・点検予定</h2>
+        <h2>オーバーホール、メンテナンス・点検サポート予定</h2>
         <p>目標イベントに合わせたサポート予定</p>
       </div>
     </div>
@@ -108,12 +108,15 @@
               <b>{{ row.bikeMaker }} {{ row.bikeModel }}</b>
             </td>
             <td>{{ row.kind }}</td>
-            <td>{{ row.title }}</td>
+            <td>
+              {{ row.title }}
+              <span v-if="row.isAdHoc" class="status warning">突発作業</span>
+            </td>
             <td>{{ row.date }}〜{{ row.endDate || '未定' }}</td>
             <td>{{ row.status }}</td>
           </tr>
           <tr v-if="scheduleRows.length === 0">
-            <td colspan="5" class="empty-state">メンテナンス・点検予定はありません。</td>
+            <td colspan="5" class="empty-state">メンテナンス・点検サポート予定はありません。</td>
           </tr>
         </tbody>
       </table>

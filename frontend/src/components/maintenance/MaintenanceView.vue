@@ -22,10 +22,12 @@
     'clear-filters': [];
     sort: [field: 'customer' | 'date' | 'status'];
     'open-customer': [name: string];
+    'open-bike': [bikeId: number];
     'status-change': [work: Work, status: Status];
     edit: [work: Work];
     'start-work': [work: Work];
     complete: [work: Work];
+    stop: [work: Work];
   }>();
 </script>
 
@@ -50,7 +52,7 @@
     <div class="panel-head">
       <div>
         <h2>メンテナンス計画一覧</h2>
-        <p>予定・案内・予約は回数を消費しません</p>
+        <p>案内待ち・案内済み・予約は回数を消費しません</p>
       </div>
       <div class="list-name-filters">
         <input
@@ -104,7 +106,7 @@
               </button>
             </th>
             <th>新規登録可能枠</th>
-            <th>受付担当</th>
+            <th>受付担当者</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -115,10 +117,15 @@
                 {{ row.bike.customer }}
               </button>
             </td>
-            <td>{{ row.bike.model }}</td>
+            <td>
+              <button class="customer-link" @click="$emit('open-bike', row.bike.id)">
+                {{ row.bike.maker }} {{ row.bike.model }}
+              </button>
+            </td>
             <td>
               <b>{{ row.work.title }}</b>
               <small class="cell-sub">{{ row.work.detail }}</small>
+              <span v-if="row.work.isAdHoc" class="status warning">突発作業</span>
             </td>
             <td>
               <b>{{ row.work.date }}</b>
@@ -126,7 +133,7 @@
             </td>
             <td>
               <select
-                v-if="row.work.status !== '完了'"
+                v-if="row.work.status !== '完了' && row.work.status !== '作業中止'"
                 class="status-select"
                 :value="row.work.status"
                 @change="
@@ -137,27 +144,29 @@
                   )
                 "
               >
-                <option>予定</option>
                 <option>案内待ち</option>
                 <option>案内済み</option>
                 <option>予約済み</option>
                 <option>作業中</option>
                 <option>キャンセル</option>
               </select>
+              <span v-else-if="row.work.status === '作業中止'" class="status warning">
+                作業中止
+              </span>
               <span v-else class="done">✓ 完了</span>
             </td>
             <td>{{ row.remaining }}回</td>
             <td>{{ row.shopName }} / {{ row.work.receptionist }}</td>
             <td>
               <button
-                v-if="row.work.status !== '完了'"
+                v-if="row.work.status !== '完了' && row.work.status !== '作業中止'"
                 class="outline small"
                 @click="$emit('edit', row.work)"
               >
                 編集
               </button>
               <button
-                v-if="['予定', '予約済み', '案内済み'].includes(row.work.status)"
+                v-if="['案内待ち', '予約済み', '案内済み'].includes(row.work.status)"
                 class="outline small"
                 @click="$emit('start-work', row.work)"
               >
@@ -169,6 +178,13 @@
                 @click="$emit('complete', row.work)"
               >
                 完了登録
+              </button>
+              <button
+                v-if="row.work.status === '作業中'"
+                class="outline small"
+                @click="$emit('stop', row.work)"
+              >
+                作業中止
               </button>
               <span v-if="row.work.status === '完了'" class="done">✓ 完了</span>
             </td>

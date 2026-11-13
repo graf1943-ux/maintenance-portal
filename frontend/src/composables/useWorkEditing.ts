@@ -96,6 +96,7 @@ export function useWorkEditing(ctx: WorkEditingContext) {
             memo: editDetail.value,
             shopId: item.shopId,
             receptionistId: staffMember.id,
+            isAdHoc: item.isAdHoc ?? false,
           }),
         '予定内容を更新しました。契約回数は変更していません。'
       );
@@ -113,6 +114,7 @@ export function useWorkEditing(ctx: WorkEditingContext) {
           title: editTitle.value,
           detail: editDetail.value,
           receptionistId: staffMember.id,
+          isAdHoc: item.isAdHoc ?? false,
         }),
       '予定内容を更新しました。契約回数は変更していません。'
     );

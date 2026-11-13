@@ -1,10 +1,18 @@
 import {
-  InteractionRequiredAuthError,
-  PublicClientApplication,
   type AccountInfo,
   type Configuration,
+  type PublicClientApplication,
 } from '@azure/msal-browser';
 import { reactive } from 'vue';
+
+type MsalModule = typeof import('@azure/msal-browser');
+
+let msalModulePromise: Promise<MsalModule> | undefined;
+
+function loadMsal(): Promise<MsalModule> {
+  if (!msalModulePromise) msalModulePromise = import('@azure/msal-browser');
+  return msalModulePromise;
+}
 
 export type PortalRole = 'staff' | 'customer';
 
@@ -58,6 +66,7 @@ async function getApplication(role: PortalRole): Promise<PublicClientApplication
     },
     cache: { cacheLocation: 'sessionStorage' },
   };
+  const { PublicClientApplication } = await loadMsal();
   const application = new PublicClientApplication(msalConfig);
   await application.initialize();
   applications.set(role, application);
@@ -110,6 +119,7 @@ export async function getAccessToken(): Promise<string> {
   const account = authState.account;
   if (!role || !account) throw new Error('サインインしてください。');
   const application = await getApplication(role);
+  const { InteractionRequiredAuthError } = await loadMsal();
   try {
     const result = await application.acquireTokenSilent({
       account,

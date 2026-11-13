@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { Bike, EventCheck } from '../../types';
+  import type { Bike, EventCheck, Status } from '../../types';
 
   type EventInspectionRow = {
     event: EventCheck;
@@ -27,9 +27,12 @@
     'clear-filters': [];
     sort: [field: 'customer' | 'date' | 'status'];
     'open-customer': [name: string];
+    'open-bike': [bikeId: number];
+    'status-change': [event: EventCheck, status: Status];
     edit: [event: EventCheck];
     'start-work': [event: EventCheck];
     complete: [event: EventCheck];
+    stop: [event: EventCheck];
   }>();
 </script>
 
@@ -44,17 +47,17 @@
   <div class="callout">
     <b>点検サポートはメンテナンスとは別枠</b>
     <p>
-      点検サポートの実施完了時にのみ、プランの点検回数を1回消費します。メンテナンス回数とは相互に影響しません。
+      点検サポートの実施完了時にのみ、プランの点検サポート回数を1回消費します。メンテナンス回数とは相互に影響しません。
     </p>
   </div>
   <div class="list-toolbar">
-    <span class="muted">顧客詳細から登録したイベント・点検予定の一覧です。</span>
+    <span class="muted">顧客詳細から登録したイベント・点検サポート予定の一覧です。</span>
   </div>
   <section class="panel">
     <div class="panel-head">
       <div>
         <h2>イベント・点検サポート一覧</h2>
-        <p>点検完了時に点検サポート枠を消費</p>
+        <p>点検サポート完了時に契約回数を消費</p>
       </div>
       <div class="list-name-filters">
         <input
@@ -109,7 +112,7 @@
               </button>
             </th>
             <th>新規登録可能枠</th>
-            <th>受付担当</th>
+            <th>受付担当者</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -120,30 +123,57 @@
                 {{ row.bike.customer }}
               </button>
             </td>
-            <td>{{ row.bike.model }}</td>
             <td>
-              <b>{{ row.event.name }}</b><small class="cell-sub">{{ row.event.memo }}</small>
+              <button class="customer-link" @click="$emit('open-bike', row.bike.id)">
+                {{ row.bike.maker }} {{ row.bike.model }}
+              </button>
+            </td>
+            <td>
+              <b>{{ row.event.name }}</b>
+              <small class="cell-sub">{{ row.event.memo }}</small>
+              <span v-if="row.event.isAdHoc" class="status warning">突発作業</span>
             </td>
             <td>{{ row.event.eventDate }}</td>
             <td>
-              {{ row.event.inspectionDate
-              }}<small class="cell-sub">〜 {{ row.event.endDate || '未定' }}</small>
+              <b>{{ row.event.inspectionDate }}</b>
+              <small class="cell-sub">〜 {{ row.event.endDate || '未定' }}</small>
             </td>
             <td>
-              <span class="status info">{{ row.event.status }}</span>
+              <select
+                v-if="row.event.status !== '完了' && row.event.status !== '作業中止'"
+                class="status-select"
+                :value="row.event.status"
+                @change="
+                  $emit(
+                    'status-change',
+                    row.event,
+                    ($event.target as HTMLSelectElement).value as Status
+                  )
+                "
+              >
+                <option>案内待ち</option>
+                <option>案内済み</option>
+                <option>予約済み</option>
+                <option>作業中</option>
+                <option>キャンセル</option>
+              </select>
+              <span v-else-if="row.event.status === '作業中止'" class="status warning">
+                作業中止
+              </span>
+              <span v-else class="done">✓ 完了</span>
             </td>
             <td>{{ row.remaining }}回</td>
             <td>{{ row.shopName }} / {{ row.event.receptionist }}</td>
             <td>
               <button
-                v-if="row.event.status !== '完了'"
+                v-if="row.event.status !== '完了' && row.event.status !== '作業中止'"
                 class="outline small"
                 @click="$emit('edit', row.event)"
               >
                 編集
               </button>
               <button
-                v-if="['予定', '予約済み', '案内済み'].includes(row.event.status)"
+                v-if="['案内待ち', '予約済み', '案内済み'].includes(row.event.status)"
                 class="outline small"
                 @click="$emit('start-work', row.event)"
               >
@@ -155,6 +185,13 @@
                 @click="$emit('complete', row.event)"
               >
                 完了登録
+              </button>
+              <button
+                v-if="row.event.status === '作業中'"
+                class="outline small"
+                @click="$emit('stop', row.event)"
+              >
+                作業中止
               </button>
               <span v-if="row.event.status === '完了'" class="done">✓ 完了</span>
             </td>

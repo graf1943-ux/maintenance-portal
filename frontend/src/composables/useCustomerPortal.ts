@@ -7,6 +7,7 @@ interface CustomerPortalContext {
   useMockData: boolean;
   portalProfile: Ref<{ name: string; customerId?: number } | null>;
   bikes: Ref<Bike[]>;
+  overhauls: Ref<Work[]>;
   maintenance: Ref<Work[]>;
   eventChecks: Ref<EventCheck[]>;
   searchText: Ref<string>;
@@ -46,6 +47,18 @@ export function useCustomerPortal(ctx: CustomerPortalContext) {
   const scheduleRows = computed(() => {
     const customerBikeIds = new Set(customerBikes.value.map((bike) => bike.id));
     const rows = [
+      ...ctx.overhauls.value
+        .filter((item) => customerBikeIds.has(item.bikeId))
+        .map((item) => ({
+          id: `overhaul-${item.id}`,
+          bikeId: item.bikeId,
+          date: item.date,
+          endDate: item.endDate,
+          status: item.status,
+          title: item.title,
+          kind: 'オーバーホール',
+          isAdHoc: item.isAdHoc,
+        })),
       ...ctx.maintenance.value
         .filter((item) => customerBikeIds.has(item.bikeId))
         .map((item) => ({
@@ -56,6 +69,7 @@ export function useCustomerPortal(ctx: CustomerPortalContext) {
           status: item.status,
           title: item.title,
           kind: 'メンテナンス',
+          isAdHoc: item.isAdHoc,
         })),
       ...ctx.eventChecks.value
         .filter((item) => customerBikeIds.has(item.bikeId))
@@ -67,6 +81,7 @@ export function useCustomerPortal(ctx: CustomerPortalContext) {
           status: item.status,
           title: item.name,
           kind: '点検サポート',
+          isAdHoc: item.isAdHoc,
         })),
     ];
 

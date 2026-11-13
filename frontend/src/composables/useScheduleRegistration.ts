@@ -19,12 +19,14 @@ interface ScheduleRegistrationContext {
   newOverhaulReceptionDate: Ref<string>;
   newOverhaulDate: Ref<string>;
   newOverhaulEndDate: Ref<string>;
+  newOverhaulIsAdHoc: Ref<boolean>;
   newOverhaulTitle: Ref<string>;
   newOverhaulDetail: Ref<string>;
   newWorkBike: Ref<number>;
   maintenanceBikeSearch: Ref<string>;
   newWorkDate: Ref<string>;
   newWorkEndDate: Ref<string>;
+  newWorkIsAdHoc: Ref<boolean>;
   newWorkTitle: Ref<string>;
   newWorkDetail: Ref<string>;
   newEventBike: Ref<number>;
@@ -33,6 +35,7 @@ interface ScheduleRegistrationContext {
   newEventDate: Ref<string>;
   newInspectionDate: Ref<string>;
   newInspectionEndDate: Ref<string>;
+  newEventIsAdHoc: Ref<boolean>;
   notice: Ref<string>;
   showOverhaulModal: Ref<boolean>;
   showMaintenanceModal: Ref<boolean>;
@@ -105,14 +108,16 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
         bikeId: b.id,
         date: dateSlash(ctx.newOverhaulDate.value),
         endDate: ctx.newOverhaulEndDate.value ? dateSlash(ctx.newOverhaulEndDate.value) : undefined,
-        status: '予定',
+        status: ctx.newOverhaulIsAdHoc.value ? '作業中' : '案内待ち',
         title: ctx.newOverhaulTitle.value,
         detail: ctx.newOverhaulDetail.value,
         shopId: b.shopId,
         receptionist: person.name,
+        isAdHoc: ctx.newOverhaulIsAdHoc.value,
       };
       ctx.overhauls.value.unshift(item);
       ctx.showOverhaulModal.value = false;
+      ctx.newOverhaulIsAdHoc.value = false;
       ctx.dataSourceStatus.value = 'mock';
       ctx.notice.value =
         'オーバーホール予定をVueモックデータに登録しました。画面を再読み込みすると初期データに戻ります。';
@@ -128,10 +133,14 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
           detail: ctx.newOverhaulDetail.value,
           shopId: b.shopId,
           receptionistId: person.id,
+          isAdHoc: ctx.newOverhaulIsAdHoc.value,
         }),
       'オーバーホール予定を登録しました。実施完了までは契約回数を消費しません。'
     );
-    if (ok) ctx.showOverhaulModal.value = false;
+    if (ok) {
+      ctx.showOverhaulModal.value = false;
+      ctx.newOverhaulIsAdHoc.value = false;
+    }
   }
 
   async function addMaintenance() {
@@ -162,13 +171,15 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
         bikeId: b.id,
         date: dateSlash(ctx.newWorkDate.value),
         endDate: ctx.newWorkEndDate.value ? dateSlash(ctx.newWorkEndDate.value) : undefined,
-        status: '予定',
+        status: ctx.newWorkIsAdHoc.value ? '作業中' : '案内待ち',
         title: ctx.newWorkTitle.value,
         detail: ctx.newWorkDetail.value,
         shopId: b.shopId,
         receptionist: person.name,
+        isAdHoc: ctx.newWorkIsAdHoc.value,
       });
       ctx.showMaintenanceModal.value = false;
+      ctx.newWorkIsAdHoc.value = false;
       ctx.notice.value = 'メンテナンス計画をVueモックデータに登録しました。';
       return;
     }
@@ -182,10 +193,14 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
           detail: ctx.newWorkDetail.value,
           shopId: b.shopId,
           receptionistId: person.id,
+          isAdHoc: ctx.newWorkIsAdHoc.value,
         }),
       'メンテナンス計画を追加しました。実施完了までは回数を消費しません。'
     );
-    if (ok) ctx.showMaintenanceModal.value = false;
+    if (ok) {
+      ctx.showMaintenanceModal.value = false;
+      ctx.newWorkIsAdHoc.value = false;
+    }
   }
 
   async function addEvent() {
@@ -226,13 +241,15 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
         endDate: ctx.newInspectionEndDate.value
           ? dateSlash(ctx.newInspectionEndDate.value)
           : undefined,
-        status: '予定',
+        status: ctx.newEventIsAdHoc.value ? '作業中' : '案内待ち',
         memo: '目標イベントに向けた点検サポート',
         shopId: b.shopId,
         receptionist: person.name,
+        isAdHoc: ctx.newEventIsAdHoc.value,
       });
       ctx.newEventName.value = '';
       ctx.showEventModal.value = false;
+      ctx.newEventIsAdHoc.value = false;
       ctx.notice.value = 'イベント・点検予定をVueモックデータに登録しました。';
       return;
     }
@@ -247,12 +264,14 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
           memo: '目標イベントに向けた点検サポート',
           shopId: b.shopId,
           receptionistId: person.id,
+          isAdHoc: ctx.newEventIsAdHoc.value,
         }),
       '目標イベントと点検予定を登録しました。'
     );
     if (ok) {
       ctx.newEventName.value = '';
       ctx.showEventModal.value = false;
+      ctx.newEventIsAdHoc.value = false;
     }
   }
 

@@ -99,12 +99,56 @@ if (Test-Path $publishDirectory) {
 New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
 
 Write-Host '1/4 Publishing the .NET 10 API...' -ForegroundColor Cyan
-dotnet publish $projectFile --configuration Release --output $publishDirectory
+dotnet publish $projectFile --configuration Release --output $publishDirectory --runtime linux-x64 --self-contained false
 if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed.' }
 
 Write-Host '2/4 Creating the ZIP package...' -ForegroundColor Cyan
 if (Test-Path $packagePath) { Remove-Item $packagePath -Force }
-Compress-Archive -Path (Join-Path $publishDirectory '*') -DestinationPath $packagePath -CompressionLevel Optimal
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zipStream = [System.IO.File]::Open(
+    $packagePath,
+    [System.IO.FileMode]::CreateNew,
+    [System.IO.FileAccess]::ReadWrite,
+    [System.IO.FileShare]::None)
+$package = [System.IO.Compression.ZipArchive]::new(
+    $zipStream,
+    [System.IO.Compression.ZipArchiveMode]::Create,
+    $false)
+$publishRoot = (Get-Item -LiteralPath $publishDirectory).FullName.TrimEnd([char[]]@(92, 47))
+try {
+    foreach ($file in Get-ChildItem -LiteralPath $publishDirectory -File -Recurse) {
+        $entryName = $file.FullName.Substring($publishRoot.Length).TrimStart([char[]]@(92, 47)).Replace([char]92, [char]47)
+        $entry = $package.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
+        $entryStream = $entry.Open()
+        $fileStream = [System.IO.File]::OpenRead($file.FullName)
+        try {
+            $fileStream.CopyTo($entryStream)
+        }
+        finally {
+            $fileStream.Dispose()
+            $entryStream.Dispose()
+        }
+    }
+}
+finally {
+    $package.Dispose()
+}
+
+$package = [System.IO.Compression.ZipFile]::OpenRead($packagePath)
+try {
+    $hasSqlClient = $package.Entries | Where-Object {
+        $_.FullName -eq 'Microsoft.Data.SqlClient.dll'
+    }
+    if (-not $hasSqlClient) {
+        throw 'The ZIP package is missing Microsoft.Data.SqlClient.dll.'
+    }
+    if ($package.Entries | Where-Object { $_.FullName.Contains('\') }) {
+        throw 'The ZIP package contains Windows-style entry paths. Recreate it with forward-slash paths.'
+    }
+}
+finally {
+    $package.Dispose()
+}
 
 Write-Host '3/4 Configuring the App Service settings...' -ForegroundColor Cyan
 Write-Host 'Skipping runtime configuration. .NET 10 was configured separately.' -ForegroundColor Yellow

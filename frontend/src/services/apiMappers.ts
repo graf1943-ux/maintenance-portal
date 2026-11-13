@@ -1,4 +1,4 @@
-import type { Bike, EventCheck, History, Plan, Status, Work } from '../types';
+import type { Bike, EventCheck, History, Plan, Status, Work, WorkReport } from '../types';
 
 export type ApiBike = {
   id: number;
@@ -8,6 +8,7 @@ export type ApiBike = {
   model: string;
   year: number;
   serial: string;
+  purchaseDate?: string | null;
   contractStart?: string | null;
   contractEnd?: string | null;
   overhaulUsed: number;
@@ -23,12 +24,13 @@ export type ApiWork = {
   bikeId: number;
   startDate: string;
   endDate?: string | null;
-  status: Status;
+  status: ApiStatus;
   title: string;
   detail: string;
   shopId: number;
   receptionist?: string | null;
   receptionistId?: number | null;
+  isAdHoc?: boolean;
 };
 
 export type ApiEvent = {
@@ -38,15 +40,26 @@ export type ApiEvent = {
   eventDate: string;
   inspectionStartDate: string;
   inspectionEndDate?: string | null;
-  status: Status;
+  status: ApiStatus;
   memo: string;
   shopId: number;
   receptionistId?: number | null;
+  isAdHoc?: boolean;
 };
 
 export type ApiCustomer = { id: number; name: string; email: string; phone?: string };
+export type ApiBikeComponent = {
+  id: number;
+  bikeId: number;
+  category: string;
+  manufacturer: string;
+  model: string;
+  installedDate: string;
+  removedDate?: string | null;
+};
 export type ApiShop = { id: number; name: string; address: string; phone: string };
 export type ApiStaff = { id: number; shopId: number; name: string; role: string };
+type ApiStatus = Status | '予定';
 export type ApiHistory = {
   id: number;
   bikeId: number;
@@ -56,11 +69,15 @@ export type ApiHistory = {
   title: string;
   detail: string;
   memo?: string | null;
+  isAdHoc?: boolean;
+  report?: WorkReport | null;
 };
 
 export const dateSlash = (v?: string | null) =>
   v ? String(v).slice(0, 10).replace(/-/g, '/') : '';
 export const dateIso = (v?: string | null) => (v ? String(v).slice(0, 10).replace(/\//g, '-') : '');
+const mapStatus = (status: ApiStatus): Status => (status === '予定' ? '案内待ち' : status);
+
 export function mapBike(x: ApiBike, receptionistName: (id: number) => string): Bike {
   return {
     id: x.id,
@@ -70,6 +87,7 @@ export function mapBike(x: ApiBike, receptionistName: (id: number) => string): B
     model: x.model,
     year: x.year,
     serial: x.serial,
+    purchaseDate: dateSlash(x.purchaseDate),
     planId: x.plan?.id ?? 1,
     contractStart: dateSlash(x.contractStart),
     contractEnd: dateSlash(x.contractEnd),
@@ -87,11 +105,12 @@ export function mapWork(x: ApiWork, receptionistName: (id: number) => string): W
     bikeId: x.bikeId,
     date: dateSlash(x.startDate),
     endDate: dateSlash(x.endDate),
-    status: x.status as Status,
+    status: mapStatus(x.status),
     title: x.title,
     detail: x.detail,
     shopId: x.shopId,
     receptionist: x.receptionist ?? receptionistName(x.receptionistId ?? 0),
+    isAdHoc: x.isAdHoc ?? false,
   };
 }
 export function mapEvent(x: ApiEvent, receptionistName: (id: number) => string): EventCheck {
@@ -102,10 +121,11 @@ export function mapEvent(x: ApiEvent, receptionistName: (id: number) => string):
     eventDate: dateSlash(x.eventDate),
     inspectionDate: dateSlash(x.inspectionStartDate),
     endDate: dateSlash(x.inspectionEndDate),
-    status: x.status,
+    status: mapStatus(x.status),
     memo: x.memo,
     shopId: x.shopId,
     receptionist: receptionistName(x.receptionistId ?? 0),
+    isAdHoc: x.isAdHoc ?? false,
   };
 }
 
@@ -119,5 +139,7 @@ export function mapHistory(x: ApiHistory): History {
     title: x.title,
     detail: x.detail,
     memo: x.memo ?? '',
+    isAdHoc: x.isAdHoc ?? false,
+    report: x.report ?? undefined,
   };
 }

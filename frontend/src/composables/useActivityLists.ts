@@ -1,13 +1,13 @@
 import { computed, type Ref } from 'vue';
-import type { Bike, EventCheck, History, Work } from '../types';
+import type { Bike, History } from '../types';
 import { matches, type ListSorter } from '../utils/list';
+import type { DashboardReminder } from './useDashboardData';
 
 interface ActivityListsContext {
   bikes: Ref<Bike[]>;
   histories: Ref<History[]>;
-  maintenance: Ref<Work[]>;
-  eventChecks: Ref<EventCheck[]>;
-  selectedBikeId: Ref<number>;
+  reminders: Ref<DashboardReminder[]>;
+  selectedBikeFilter: Ref<number | null>;
   searchHistory: Ref<string>;
   searchMessages: Ref<string>;
   sortRows: ListSorter;
@@ -16,61 +16,42 @@ interface ActivityListsContext {
 /** 履歴画面と、案内待ちのメッセージ一覧を組み立てます。 */
 export function useActivityLists(ctx: ActivityListsContext) {
   const bikesById = computed(() => new Map(ctx.bikes.value.map((bike) => [bike.id, bike])));
-  const selectedBikeHistoryCount = computed(
-    () =>
-      ctx.histories.value.filter((history) => history.bikeId === ctx.selectedBikeId.value).length
-  );
 
-  const historyRows = computed(() =>
-    ctx.sortRows(
-      ctx.histories.value.filter(
-        (history) =>
-          history.bikeId === ctx.selectedBikeId.value &&
+  const historyRows = computed(() => {
+    const rows = ctx.histories.value
+      .filter((history) => {
+        const bike = bikesById.value.get(history.bikeId);
+        return (
           matches(
             ctx.searchHistory.value,
             history.date,
             history.category,
             history.title,
             history.detail,
-            history.memo
-          )
-      ),
-      'history',
-      (history) => history.date
-    )
-  );
+            history.memo,
+            bike?.customer,
+            bike?.maker,
+            bike?.model
+          ) &&
+          (ctx.selectedBikeFilter.value === null || history.bikeId === ctx.selectedBikeFilter.value)
+        );
+      })
+      .map((history) => ({ ...history, bike: bikesById.value.get(history.bikeId) }));
+
+    return ctx.sortRows(rows, 'history', (history) => history.date);
+  });
+  const historyCount = computed(() => historyRows.value.length);
 
   const messageRows = computed(() => {
-    const pendingItems = [
-      ...ctx.maintenance.value
-        .filter((item) => item.status === '案内待ち')
-        .map((item) => ({
-          id: item.id,
-          bikeId: item.bikeId,
-          date: item.date,
-          title: item.title,
-          kind: 'メンテナンス' as const,
-        })),
-      ...ctx.eventChecks.value
-        .filter((item) => item.status === '案内待ち')
-        .map((item) => ({
-          id: item.id,
-          bikeId: item.bikeId,
-          date: item.inspectionDate,
-          title: item.name,
-          kind: '点検サポート' as const,
-        })),
-    ];
-
-    const rows = pendingItems
+    const rows = ctx.reminders.value
       .map((item) => {
         const bike = bikesById.value.get(item.bikeId);
         return {
-          id: `${item.kind}-${item.id}`,
+          id: item.id,
           bikeId: item.bikeId,
           customer: bike?.customer ?? '',
           bikeModel: bike?.model ?? '',
-          kind: item.kind,
+          kind: item.kind === 'イベント前点検' ? '点検サポート' : item.kind,
           title: item.title,
           date: item.date,
         };
@@ -94,5 +75,5 @@ export function useActivityLists(ctx: ActivityListsContext) {
     );
   });
 
-  return { historyRows, selectedBikeHistoryCount, messageRows };
+  return { historyRows, historyCount, messageRows };
 }

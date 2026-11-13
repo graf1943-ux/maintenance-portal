@@ -1,5 +1,6 @@
 <script setup lang="ts">
-  import type { Bike, History, Plan } from '../../types';
+  import type { Bike, Plan } from '../../types';
+  import type { CustomerProfileForm } from '../../composables/useCustomerProfileEditor';
   import type { CustomerWorkRow } from '../../composables/useCustomerDetails';
 
   type CustomerBikeCard = {
@@ -11,11 +12,16 @@
   };
 
   defineProps<{
+    customerId: number | null;
     customerName: string;
     customerEmail: string;
+    customerPhone: string;
+    customerProfileEditing: boolean;
+    customerProfileSaving: boolean;
+    customerProfileError: string;
+    customerProfileMessage: string;
     bikes: CustomerBikeCard[];
     works: CustomerWorkRow[];
-    histories: History[];
     showIdentityLink: boolean;
     identityTenantId: string;
     identityObjectId: string;
@@ -24,7 +30,12 @@
     identitySaving: boolean;
   }>();
 
+  const profile = defineModel<CustomerProfileForm>('customer-profile', { required: true });
+
   defineEmits<{
+    'edit-customer': [];
+    'cancel-customer-edit': [];
+    'save-customer': [];
     'update:identity-tenant-id': [value: string];
     'update:identity-object-id': [value: string];
     close: [];
@@ -33,6 +44,7 @@
     'open-bike-page': [
       payload: { target: 'overhaul' | 'maintenance' | 'events' | 'history'; bikeId: number },
     ];
+    'open-bike-detail': [bikeId: number];
   }>();
 </script>
 
@@ -48,16 +60,54 @@
         <button class="close" @click="$emit('close')">×</button>
       </div>
       <section class="customer-profile-summary">
-        <div>
-          <label>顧客名</label><b>{{ customerName }}</b>
-        </div>
-        <div>
-          <label>メールアドレス</label><b>{{ customerEmail || '未登録' }}</b>
-        </div>
+        <template v-if="customerProfileEditing">
+          <div><label>顧客名</label><input v-model="profile.name" /></div>
+          <div><label>メールアドレス</label><input v-model="profile.email" type="email" /></div>
+          <div><label>電話番号</label><input v-model="profile.phone" type="tel" /></div>
+        </template>
+        <template v-else>
+          <div>
+            <label>顧客名</label><b>{{ customerName }}</b>
+          </div>
+          <div>
+            <label>メールアドレス</label><b>{{ customerEmail || '未登録' }}</b>
+          </div>
+          <div>
+            <label>電話番号</label><b>{{ customerPhone || '未登録' }}</b>
+          </div>
+        </template>
         <div>
           <label>契約自転車</label><b>{{ bikes.length }}台</b>
         </div>
       </section>
+      <div v-if="customerProfileEditing" class="customer-profile-edit-actions">
+        <p v-if="customerProfileError" class="customer-identity-feedback error">
+          {{ customerProfileError }}
+        </p>
+        <p v-if="customerProfileMessage" class="customer-identity-feedback success">
+          {{ customerProfileMessage }}
+        </p>
+        <button
+          class="outline small"
+          :disabled="customerProfileSaving"
+          @click="$emit('cancel-customer-edit')"
+        >
+          キャンセル
+        </button>
+        <button
+          class="primary small"
+          :disabled="customerProfileSaving"
+          @click="$emit('save-customer')"
+        >
+          {{ customerProfileSaving ? '保存中…' : '顧客情報を保存' }}
+        </button>
+      </div>
+      <div v-else-if="customerId !== null" class="customer-profile-edit-actions">
+        <p v-if="customerProfileMessage" class="customer-identity-feedback success">
+          {{ customerProfileMessage }}
+        </p>
+        <button class="outline small" @click="$emit('edit-customer')">顧客情報を編集</button>
+      </div>
       <section v-if="showIdentityLink" class="customer-profile-section customer-identity-section">
         <div class="panel-head">
           <div>
@@ -107,8 +157,10 @@
         </div>
         <div v-for="card in bikes" :key="card.bike.id" class="customer-profile-bike">
           <div class="customer-profile-bike-title">
-            <b>{{ card.bike.maker }} {{ card.bike.model }}</b
-            ><span class="status success">契約中</span>
+            <button class="customer-link" @click="$emit('open-bike-detail', card.bike.id)">
+              {{ card.bike.maker }} {{ card.bike.model }}
+            </button>
+            <span class="status success">契約中</span>
           </div>
           <div class="customer-bike-actions customer-bike-register-actions">
             <button
@@ -130,7 +182,7 @@
               :disabled="card.scheduleRemaining.inspection <= 0"
               @click="$emit('register-bike', { kind: 'event', bike: card.bike })"
             >
-              ＋ 点検登録
+              ＋ 点検サポート登録
             </button>
           </div>
           <div class="customer-bike-actions customer-bike-manage-actions">
@@ -150,7 +202,7 @@
               class="outline small"
               @click="$emit('open-bike-page', { target: 'events', bikeId: card.bike.id })"
             >
-              点検管理画面
+              点検サポート管理画面
             </button>
             <button
               class="outline small"
@@ -161,14 +213,15 @@
           </div>
           <div class="detail-grid">
             <div>
-              <label>プラン</label><b>{{ card.plan.name }}</b>
+              <label>プラン</label>
+              <b>{{ card.plan.name }}</b>
             </div>
             <div>
               <label>契約期間</label>
               <b>{{ card.bike.contractStart }}〜{{ card.bike.contractEnd }}</b>
             </div>
             <div>
-              <label>担当店舗・受付</label>
+              <label>担当店舗・受付担当者</label>
               <b>{{ card.shopName }} / {{ card.bike.receptionist }}</b>
             </div>
             <div>
@@ -196,7 +249,7 @@
       <section class="customer-profile-section">
         <div class="panel-head">
           <div>
-            <h3>メンテナンス・点検予定</h3>
+            <h3>オーバーホール、メンテナンス・点検サポート予定</h3>
             <p>対象自転車・作業期間・状態</p>
           </div>
         </div>
@@ -207,15 +260,28 @@
                 <th>対象自転車</th>
                 <th>作業区分</th>
                 <th>内容</th>
-                <th>開始日〜完了日</th>
+                <th>作業期間</th>
                 <th>状態</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="work in works" :key="work.kind + '-' + work.id">
-                <td>{{ bikes.find((card) => card.bike.id === work.bikeId)?.bike.model }}</td>
+                <td>
+                  <button
+                    v-if="bikes.find((card) => card.bike.id === work.bikeId)"
+                    class="customer-link"
+                    @click="$emit('open-bike-detail', work.bikeId)"
+                  >
+                    {{ bikes.find((card) => card.bike.id === work.bikeId)?.bike.maker }}
+                    {{ bikes.find((card) => card.bike.id === work.bikeId)?.bike.model }}
+                  </button>
+                  <span v-else>—</span>
+                </td>
                 <td>{{ work.kind }}</td>
-                <td>{{ work.title }}</td>
+                <td>
+                  {{ work.title }}
+                  <span v-if="work.isAdHoc" class="status warning">突発作業</span>
+                </td>
                 <td>{{ work.date }}〜{{ work.endDate || '未定' }}</td>
                 <td>
                   <span class="status info">{{ work.status }}</span>
@@ -223,39 +289,6 @@
               </tr>
               <tr v-if="!works.length">
                 <td colspan="5" class="empty-state">予定は登録されていません。</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-      <section class="customer-profile-section">
-        <div class="panel-head">
-          <div>
-            <h3>作業履歴</h3>
-            <p>完了した作業と記録メモ</p>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>実施日</th>
-                <th>対象自転車</th>
-                <th>作業区分</th>
-                <th>作業内容</th>
-                <th>メモ</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="history in histories" :key="history.id">
-                <td>{{ history.date }}</td>
-                <td>{{ bikes.find((card) => card.bike.id === history.bikeId)?.bike.model }}</td>
-                <td>{{ history.category }}</td>
-                <td>{{ history.title }}</td>
-                <td>{{ history.memo || '—' }}</td>
-              </tr>
-              <tr v-if="!histories.length">
-                <td colspan="5" class="empty-state">作業履歴はありません。</td>
               </tr>
             </tbody>
           </table>

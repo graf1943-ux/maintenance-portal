@@ -37,11 +37,16 @@ public sealed class EventsController(RoadbikeCareDbContext db, RoadbikeCarePersi
 
     [HttpPut("{id:int}")]
     [Authorize(Policy = "Staff")]
-    public async Task<IActionResult> UpdateEvent(int id, EventCheck input, CancellationToken cancellationToken) =>
+    public async Task<IActionResult> UpdateEvent(int id, UpdateEventRequest input, CancellationToken cancellationToken) =>
         ToActionResult(await service.UpdateEventAsync(id, input, cancellationToken), item => Ok(EventView(item)));
 
     [HttpPost("{id:int}/complete")]
     [Authorize(Policy = "Staff")]
     public async Task<IActionResult> CompleteEvent(int id, CompleteWorkRequest input, CancellationToken cancellationToken) =>
         ToActionResult(await service.CompleteEventAsync(id, input, cancellationToken), item => Ok(EventView(item)));
+
+    [HttpPost("{id:int}/stop")]
+    [Authorize(Policy = "Staff")]
+    public async Task<IActionResult> StopEvent(int id, StopWorkRequest input, CancellationToken cancellationToken) =>
+        ToActionResult(await service.StopEventAsync(id, input, cancellationToken), item => Ok(EventView(item)));
 }

@@ -44,6 +44,9 @@ namespace RoadbikeCare.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<DateOnly?>("PurchaseDate")
+                        .HasColumnType("date");
+
                     b.Property<string>("Serial")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -59,9 +62,49 @@ namespace RoadbikeCare.Api.Data.Migrations
                     b.HasIndex("CustomerId");
 
                     b.HasIndex("Serial")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("[Serial] <> N''");
 
                     b.ToTable("Bikes");
+                });
+
+            modelBuilder.Entity("RoadbikeCare.Api.Models.BikeComponent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BikeId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateOnly>("InstalledDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Manufacturer")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateOnly?>("RemovedDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BikeId");
+
+                    b.ToTable("BikeComponents");
                 });
 
             modelBuilder.Entity("RoadbikeCare.Api.Models.Contract", b =>
@@ -179,6 +222,9 @@ namespace RoadbikeCare.Api.Data.Migrations
 
                     b.Property<DateOnly>("InspectionStartDate")
                         .HasColumnType("date");
+
+                    b.Property<bool>("IsAdHoc")
+                        .HasColumnType("bit");
 
                     b.Property<string>("Memo")
                         .IsRequired()
@@ -312,7 +358,13 @@ namespace RoadbikeCare.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<bool>("IsAdHoc")
+                        .HasColumnType("bit");
+
                     b.Property<string>("Memo")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ReportJson")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<DateOnly?>("StartDate")
@@ -349,6 +401,9 @@ namespace RoadbikeCare.Api.Data.Migrations
 
                     b.Property<DateOnly?>("EndDate")
                         .HasColumnType("date");
+
+                    b.Property<bool>("IsAdHoc")
+                        .HasColumnType("bit");
 
                     b.Property<string>("Kind")
                         .IsRequired()
@@ -401,6 +456,17 @@ namespace RoadbikeCare.Api.Data.Migrations
                     b.Navigation("ActiveContractNavigation");
 
                     b.Navigation("CustomerNavigation");
+                });
+
+            modelBuilder.Entity("RoadbikeCare.Api.Models.BikeComponent", b =>
+                {
+                    b.HasOne("RoadbikeCare.Api.Models.Bike", "BikeNavigation")
+                        .WithMany()
+                        .HasForeignKey("BikeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("BikeNavigation");
                 });
 
             modelBuilder.Entity("RoadbikeCare.Api.Models.Contract", b =>

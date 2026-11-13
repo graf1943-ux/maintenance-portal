@@ -56,8 +56,8 @@
           v-for="item in [
             { id: 'overhaul', label: 'オーバーホール', icon: '⚙' },
             { id: 'maintenance', label: 'メンテナンス計画', icon: '◷' },
-            { id: 'events', label: '目標イベント・点検', icon: '◇' },
-            { id: 'history', label: 'メンテナンス履歴', icon: '▤' },
+            { id: 'events', label: '目標イベント・点検サポート', icon: '◇' },
+            { id: 'history', label: '作業履歴', icon: '▤' },
           ]"
           :key="item.id"
           class="nav-item"
@@ -93,8 +93,8 @@
         </button>
       </div>
     </template>
-    <template v-else
-      ><div class="nav-group">
+    <template v-else>
+      <div class="nav-group">
         <div class="nav-group-title">お客様メニュー</div>
         <button
           class="nav-item"
@@ -103,20 +103,20 @@
         >
           <span class="nav-icon">▣</span>マイページ
         </button>
-      </div></template
-    >
+      </div>
+    </template>
     <div class="sidebar-bottom">
       <div v-if="roleToggleEnabled" class="side-label">表示モード</div>
       <button v-if="roleToggleEnabled" class="mode-switch" @click="$emit('toggle-role')">
-        <span>{{ role === 'staff' ? '店舗スタッフ' : '顧客マイページ' }}</span><span>切替 ↗</span>
+        <span>{{ role === 'staff' ? '店舗スタッフ' : '顧客マイページ' }}</span>
+        <span>切替 ↗</span>
       </button>
       <button v-else class="mode-switch" @click="$emit('sign-out')">サインアウト</button>
       <div class="user">
         <div class="avatar">店</div>
         <div>
-          <b>{{ userName || (role === 'staff' ? '店舗管理者' : '山田 太郎') }}</b><small>{{
-            role === 'staff' ? 'スタッフアカウント' : '顧客アカウント'
-          }}</small>
+          <b>{{ userName || (role === 'staff' ? '店舗管理者' : '山田 太郎') }}</b>
+          <small>{{ role === 'staff' ? 'スタッフアカウント' : '顧客アカウント' }}</small>
         </div>
       </div>
     </div>

@@ -79,8 +79,22 @@ public sealed class MasterDataController(RoadbikeCareDbContext db, RoadbikeCareP
 
     [HttpPut("customers/{id:int}")]
     [Authorize(Policy = "Staff")]
-    public Task<IActionResult> UpdateCustomer(int id, Customer input, CancellationToken cancellationToken) =>
-        ReplaceEntityAsync(db, db.Customers, id, input with { Id = id }, cancellationToken);
+    public async Task<IActionResult> UpdateCustomer(int id, Customer input, CancellationToken cancellationToken)
+    {
+        Customer? existing = await db.Customers.FindAsync(new object?[] { id }, cancellationToken);
+        if (existing is null)
+        {
+            return NotFound();
+        }
+
+        Customer updated = input with
+        {
+            Id = id,
+            EntraTenantId = existing.EntraTenantId,
+            EntraObjectId = existing.EntraObjectId
+        };
+        return await ReplaceEntityAsync(db, db.Customers, id, updated, cancellationToken);
+    }
 
     [HttpDelete("customers/{id:int}")]
     [Authorize(Policy = "Staff")]
@@ -128,16 +142,50 @@ public sealed class MasterDataController(RoadbikeCareDbContext db, RoadbikeCareP
         ToActionResult(await service.CreateBikeAsync(input, cancellationToken),
             item => Created($"/api/bikes/{item.Id}", BikeView(item)));
 
+    [HttpGet("bikes/{id:int}/components")]
+    [Authorize(Policy = "Staff")]
+    public async Task<IActionResult> GetBikeComponents(int id, CancellationToken cancellationToken)
+    {
+        if (!await db.Bikes.AnyAsync(x => x.Id == id, cancellationToken))
+        {
+            return NotFound();
+        }
+
+        return Ok(await db.BikeComponents.AsNoTracking()
+            .Where(x => x.BikeId == id)
+            .OrderByDescending(x => x.InstalledDate)
+            .ToListAsync(cancellationToken));
+    }
+
+    [HttpPost("bikes/{id:int}/components")]
+    [Authorize(Policy = "Staff")]
+    public async Task<IActionResult> AddBikeComponent(
+        int id,
+        CreateBikeComponentRequest input,
+        CancellationToken cancellationToken) =>
+        ToActionResult(await service.AddBikeComponentAsync(id, input, cancellationToken),
+            item => Created($"/api/bikes/{id}/components/{item.Id}", item));
+
     [HttpPut("bikes/{id:int}")]
     [Authorize(Policy = "Staff")]
     public async Task<IActionResult> UpdateBike(int id, Bike input, CancellationToken cancellationToken)
     {
+        Bike? existing = await db.Bikes.FindAsync(new object?[] { id }, cancellationToken);
+        if (existing is null)
+        {
+            return NotFound();
+        }
+
         if (!await db.Customers.AnyAsync(x => x.Id == input.CustomerId, cancellationToken))
         {
             return BadRequest(new { message = "指定された顧客が存在しません。" });
         }
 
-        return await ReplaceEntityAsync(db, db.Bikes, id, input with { Id = id }, cancellationToken);
+        return await ReplaceEntityAsync(db, db.Bikes, id, input with
+        {
+            Id = id,
+            ActiveContractId = existing.ActiveContractId
+        }, cancellationToken);
     }
 
     [HttpDelete("bikes/{id:int}")]

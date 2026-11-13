@@ -5,6 +5,7 @@ interface PortalNavigationContext {
   page: Ref<Page>;
   role: Ref<'staff' | 'customer'>;
   notice: Ref<string>;
+  searchHistory: Ref<string>;
   useMockData: boolean;
 }
 
@@ -13,6 +14,9 @@ export function usePortalNavigation(ctx: PortalNavigationContext) {
   function setPage(page: Page) {
     ctx.page.value = page;
     ctx.notice.value = '';
+    if (page === 'history') {
+      ctx.searchHistory.value = '';
+    }
   }
 
   function toggleRole() {

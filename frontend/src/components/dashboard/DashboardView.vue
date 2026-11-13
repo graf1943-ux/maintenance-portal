@@ -1,5 +1,6 @@
 <script setup lang="ts">
   import type { Bike } from '../../types';
+  import type { DashboardReminder } from '../../composables/useDashboardData';
 
   type DashboardRow = {
     id: number;
@@ -9,11 +10,13 @@
     endDate?: string;
     title: string;
     status: string;
+    isAdHoc?: boolean;
   };
 
   defineProps<{
     bikes: Bike[];
     dashboardRows: DashboardRow[];
+    reminders: DashboardReminder[];
     upcomingCount: number;
     pendingCount: number;
     completedCount: number;
@@ -25,6 +28,7 @@
   defineEmits<{
     sort: [field: 'customer' | 'date' | 'status'];
     'open-customer': [name: string];
+    'open-bike': [bikeId: number];
   }>();
 </script>
 
@@ -54,7 +58,7 @@
       <strong>{{ upcomingCount }}</strong><small>件</small>
     </div>
     <div class="stat-card">
-      <div class="stat-top"><span>案内待ち</span><span class="stat-icon orange">✉</span></div>
+      <div class="stat-top"><span>案内時期</span><span class="stat-icon orange">✉</span></div>
       <strong>{{ pendingCount }}</strong><small>件</small>
     </div>
     <div class="stat-card">
@@ -62,6 +66,61 @@
       <strong>{{ completedCount }}</strong><small>件</small>
     </div>
   </div>
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>要対応のリマインダー</h2>
+        <p>開始予定日の7日前から表示し、期限超過を優先します。</p>
+      </div>
+      <span class="status warning">{{ reminders.length }}件</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>顧客</th>
+            <th>自転車</th>
+            <th>区分・内容</th>
+            <th>予定日</th>
+            <th>要対応の理由</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="reminder in reminders" :key="reminder.id">
+            <td>
+              <button
+                class="customer-link"
+                @click="
+                  $emit(
+                    'open-customer',
+                    bikes.find((bike) => bike.id === reminder.bikeId)?.customer || ''
+                  )
+                "
+              >
+                {{ bikes.find((bike) => bike.id === reminder.bikeId)?.customer }}
+              </button>
+            </td>
+            <td>
+              <button class="customer-link" @click="$emit('open-bike', reminder.bikeId)">
+                {{ bikes.find((bike) => bike.id === reminder.bikeId)?.maker }}
+                {{ bikes.find((bike) => bike.id === reminder.bikeId)?.model }}
+              </button>
+            </td>
+            <td>
+              <b>{{ reminder.kind }}</b><small class="cell-sub">{{ reminder.title }}</small>
+            </td>
+            <td>{{ reminder.date || '未定' }}</td>
+            <td>
+              <span class="status warning">{{ reminder.reason }}</span>
+            </td>
+          </tr>
+          <tr v-if="reminders.length === 0">
+            <td colspan="5" class="empty-state">現在、要対応の項目はありません。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
   <section class="panel">
     <div class="panel-head">
       <div>
@@ -99,14 +158,19 @@
               <button
                 class="customer-link"
                 @click="
-                  $emit('open-customer', bikes.find((b) => b.id === w.bikeId)?.customer || '')
+                  $emit('open-customer', bikes.find((bike) => bike.id === w.bikeId)?.customer || '')
                 "
               >
-                {{ bikes.find((b) => b.id === w.bikeId)?.customer }}
+                {{ bikes.find((bike) => bike.id === w.bikeId)?.customer }}
               </button>
             </td>
-            <td>{{ bikes.find((b) => b.id === w.bikeId)?.model }}</td>
-            <td>{{ w.kind }}</td>
+            <td>
+              <button class="customer-link" @click="$emit('open-bike', w.bikeId)">
+                {{ bikes.find((bike) => bike.id === w.bikeId)?.maker }}
+                {{ bikes.find((bike) => bike.id === w.bikeId)?.model }}
+              </button>
+            </td>
+            <td>{{ w.kind }} <span v-if="w.isAdHoc" class="status warning">突発作業</span></td>
             <td>{{ w.title }}</td>
             <td>
               <b>{{ w.date }}</b><small class="cell-sub">〜 {{ w.endDate || '未定' }}</small>

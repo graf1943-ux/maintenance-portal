@@ -7,6 +7,7 @@ public sealed class RoadbikeCareDbContext(DbContextOptions<RoadbikeCareDbContext
 {
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Bike> Bikes => Set<Bike>();
+    public DbSet<BikeComponent> BikeComponents => Set<BikeComponent>();
     public DbSet<Shop> Shops => Set<Shop>();
     public DbSet<StaffMember> Staff => Set<StaffMember>();
     public DbSet<Plan> Plans => Set<Plan>();
@@ -19,6 +20,7 @@ public sealed class RoadbikeCareDbContext(DbContextOptions<RoadbikeCareDbContext
     {
         modelBuilder.Entity<Customer>().HasKey(x => x.Id);
         modelBuilder.Entity<Bike>().HasKey(x => x.Id);
+        modelBuilder.Entity<BikeComponent>().HasKey(x => x.Id);
         modelBuilder.Entity<Shop>().HasKey(x => x.Id);
         modelBuilder.Entity<StaffMember>().HasKey(x => x.Id);
         modelBuilder.Entity<Plan>().HasKey(x => x.Id);
@@ -28,7 +30,10 @@ public sealed class RoadbikeCareDbContext(DbContextOptions<RoadbikeCareDbContext
         modelBuilder.Entity<WorkHistory>().HasKey(x => x.Id);
 
         modelBuilder.Entity<Bike>().Property(x => x.Serial).HasMaxLength(100);
-        modelBuilder.Entity<Bike>().HasIndex(x => x.Serial).IsUnique();
+        modelBuilder.Entity<Bike>().HasIndex(x => x.Serial).IsUnique().HasFilter("[Serial] <> N''");
+        modelBuilder.Entity<BikeComponent>().Property(x => x.Category).HasMaxLength(100);
+        modelBuilder.Entity<BikeComponent>().Property(x => x.Manufacturer).HasMaxLength(100);
+        modelBuilder.Entity<BikeComponent>().Property(x => x.Model).HasMaxLength(100);
         modelBuilder.Entity<Plan>().Property(x => x.Name).HasMaxLength(100);
         modelBuilder.Entity<Plan>().HasIndex(x => x.Name).IsUnique();
         modelBuilder.Entity<Customer>().Property(x => x.EntraTenantId).HasMaxLength(64);
@@ -44,6 +49,7 @@ public sealed class RoadbikeCareDbContext(DbContextOptions<RoadbikeCareDbContext
 
         modelBuilder.Entity<Bike>().HasOne(x => x.CustomerNavigation).WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<Bike>().HasOne(x => x.ActiveContractNavigation).WithMany().HasForeignKey(x => x.ActiveContractId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<BikeComponent>().HasOne(x => x.BikeNavigation).WithMany().HasForeignKey(x => x.BikeId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<StaffMember>().HasOne(x => x.ShopNavigation).WithMany().HasForeignKey(x => x.ShopId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<Contract>().HasOne(x => x.BikeNavigation).WithMany().HasForeignKey(x => x.BikeId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<Contract>().HasOne(x => x.PlanNavigation).WithMany().HasForeignKey(x => x.PlanId).OnDelete(DeleteBehavior.Restrict);

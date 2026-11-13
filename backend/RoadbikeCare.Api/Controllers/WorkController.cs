@@ -68,6 +68,11 @@ public sealed class WorkController(RoadbikeCareDbContext db, RoadbikeCarePersist
     public async Task<IActionResult> CompleteWork(int id, CompleteWorkRequest input, CancellationToken cancellationToken) =>
         ToActionResult(await service.CompleteWorkAsync(id, input, cancellationToken), item => Ok(WorkView(item)));
 
+    [HttpPost("work/{id:int}/stop")]
+    [Authorize(Policy = "Staff")]
+    public async Task<IActionResult> StopWork(int id, StopWorkRequest input, CancellationToken cancellationToken) =>
+        ToActionResult(await service.StopWorkAsync(id, input, cancellationToken), item => Ok(WorkView(item)));
+
     [HttpDelete("work/{id:int}")]
     [Authorize(Policy = "Staff")]
     public Task<IActionResult> DeleteWork(int id, CancellationToken cancellationToken) =>

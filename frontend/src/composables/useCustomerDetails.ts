@@ -1,5 +1,5 @@
 import { computed, type Ref } from 'vue';
-import type { Bike, EventCheck, History, Plan, Status, Work } from '../types';
+import type { Bike, EventCheck, Plan, Status, Work } from '../types';
 import type { ApiShop } from '../services/apiMappers';
 import type { ContractService } from './useContractUsage';
 
@@ -11,6 +11,7 @@ export type CustomerWorkRow = {
   status: Status;
   title: string;
   kind: string;
+  isAdHoc?: boolean;
 };
 
 interface CustomerDetailsContext {
@@ -22,7 +23,6 @@ interface CustomerDetailsContext {
   overhauls: Ref<Work[]>;
   maintenance: Ref<Work[]>;
   eventChecks: Ref<EventCheck[]>;
-  histories: Ref<History[]>;
   planFor: (bike: Bike) => Plan;
   remaining: (bike: Bike, kind: ContractService) => number;
   scheduleRemaining: (bike: Bike, kind: ContractService) => number;
@@ -37,7 +37,11 @@ export function useCustomerDetails(ctx: CustomerDetailsContext) {
   );
 
   const customerBikes = computed(() =>
-    ctx.bikes.value.filter((bike) => bike.customer === ctx.selectedCustomerName.value)
+    ctx.bikes.value.filter((bike) =>
+      ctx.selectedCustomerId.value !== null
+        ? bike.customerId === ctx.selectedCustomerId.value
+        : bike.customer === ctx.selectedCustomerName.value
+    )
   );
 
   const customerBikeCards = computed(() =>
@@ -74,6 +78,7 @@ export function useCustomerDetails(ctx: CustomerDetailsContext) {
           status: work.status,
           title: work.title,
           kind: 'オーバーホール',
+          isAdHoc: work.isAdHoc,
         })),
       ...ctx.maintenance.value
         .filter((work) => bikeIds.has(work.bikeId))
@@ -85,6 +90,7 @@ export function useCustomerDetails(ctx: CustomerDetailsContext) {
           status: work.status,
           title: work.title,
           kind: 'メンテナンス',
+          isAdHoc: work.isAdHoc,
         })),
       ...ctx.eventChecks.value
         .filter((event) => bikeIds.has(event.bikeId))
@@ -96,16 +102,10 @@ export function useCustomerDetails(ctx: CustomerDetailsContext) {
           status: event.status,
           title: event.name,
           kind: '点検サポート',
+          isAdHoc: event.isAdHoc,
         })),
     ].sort((a, b) => a.date.localeCompare(b.date));
   });
 
-  const customerHistories = computed(() => {
-    const bikeIds = new Set(customerBikes.value.map((bike) => bike.id));
-    return ctx.histories.value
-      .filter((history) => bikeIds.has(history.bikeId))
-      .sort((a, b) => b.date.localeCompare(a.date));
-  });
-
-  return { customer, customerBikes, customerBikeCards, customerWorks, customerHistories };
+  return { customer, customerBikes, customerBikeCards, customerWorks };
 }

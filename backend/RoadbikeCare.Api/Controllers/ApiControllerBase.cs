@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RoadbikeCare.Api.Data;
@@ -125,6 +126,7 @@ public abstract class ApiControllerBase : ControllerBase
             bike.Model,
             bike.Year,
             bike.Serial,
+            bike.PurchaseDate,
             bike.ActiveContractId,
             ContractStart = contract?.StartDate,
             ContractEnd = contract?.EndDate,
@@ -174,7 +176,8 @@ public abstract class ApiControllerBase : ControllerBase
         Shop = item.ShopNavigation?.Name,
         Receptionist = item.ReceptionistNavigation?.Name,
         item.CompletedDate,
-        item.Memo
+        item.Memo,
+        item.IsAdHoc
     };
 
     protected static object EventView(EventCheck item) => new
@@ -190,7 +193,8 @@ public abstract class ApiControllerBase : ControllerBase
         item.Memo,
         item.ShopId,
         item.ReceptionistId,
-        item.CompletedDate
+        item.CompletedDate,
+        item.IsAdHoc
     };
 
     protected static object HistoryView(WorkHistory item) => new
@@ -203,6 +207,10 @@ public abstract class ApiControllerBase : ControllerBase
         item.Category,
         item.Title,
         item.Detail,
-        item.Memo
+        item.Memo,
+        item.IsAdHoc,
+        Report = string.IsNullOrWhiteSpace(item.ReportJson)
+            ? null
+            : JsonSerializer.Deserialize<WorkReportData>(item.ReportJson)
     };
 }

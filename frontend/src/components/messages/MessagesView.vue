@@ -21,6 +21,7 @@
     'update:search-text': [value: string];
     sort: [column: 'customer' | 'date'];
     'open-customer': [name: string];
+    'open-bike': [bikeId: number];
     'compose-mail': [payload: { customer: string; kind: string }];
   }>();
 </script>
@@ -39,8 +40,8 @@
   <section class="panel">
     <div class="panel-head">
       <div>
-        <h2>案内待ちのメンテナンス・点検</h2>
-        <p>顧客への連絡が必要な予定</p>
+        <h2>案内時期が到来した予定</h2>
+        <p>開始予定日まで7日以内または期限超過の予定</p>
       </div>
       <input
         class="search"
@@ -77,7 +78,11 @@
                 {{ row.customer }}
               </button>
             </td>
-            <td>{{ row.bikeModel }}</td>
+            <td>
+              <button class="customer-link" @click="$emit('open-bike', row.bikeId)">
+                {{ row.bikeModel }}
+              </button>
+            </td>
             <td>{{ row.kind }}</td>
             <td>{{ row.title }}</td>
             <td>{{ row.date }}</td>
@@ -91,7 +96,7 @@
             </td>
           </tr>
           <tr v-if="rows.length === 0">
-            <td colspan="6" class="empty-state">案内待ちの予定はありません。</td>
+            <td colspan="6" class="empty-state">案内時期が到来した予定はありません。</td>
           </tr>
         </tbody>
       </table>

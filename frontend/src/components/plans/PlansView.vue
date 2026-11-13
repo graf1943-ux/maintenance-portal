@@ -1,5 +1,6 @@
 <script setup lang="ts">
   import type { Plan } from '../../types';
+
   defineProps<{ plans: Plan[] }>();
   defineEmits<{ 'add-plan': [] }>();
 </script>
@@ -32,13 +33,16 @@
       </div>
       <div class="detail-grid">
         <div>
-          <label>オーバーホール</label><b class="large">{{ plan.overhaulCount }}回</b>
+          <label>オーバーホール</label>
+          <b class="large">{{ plan.overhaulCount }}回</b>
         </div>
         <div>
-          <label>メンテナンス</label><b class="large">{{ plan.maintenanceCount }}回</b>
+          <label>メンテナンス</label>
+          <b class="large">{{ plan.maintenanceCount }}回</b>
         </div>
         <div>
-          <label>点検サポート</label><b class="large">{{ plan.inspectionCount }}回</b>
+          <label>点検サポート</label>
+          <b class="large">{{ plan.inspectionCount }}回</b>
         </div>
       </div>
     </section>

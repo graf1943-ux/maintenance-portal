@@ -55,8 +55,8 @@
       <input
         class="search"
         :value="searchText"
-        @input="$emit('update:searchText', ($event.target as HTMLInputElement).value)"
         placeholder="顧客・自転車・プラン・店舗で検索"
+        @input="$emit('update:searchText', ($event.target as HTMLInputElement).value)"
       />
       <span class="count">契約期間：12月1日〜翌年11月30日</span>
     </div>
@@ -71,11 +71,10 @@
             </th>
             <th>契約プラン</th>
             <th>契約期間</th>
-            <th>担当店舗・受付</th>
+            <th>担当店舗・受付担当者</th>
             <th>OH残</th>
             <th>メンテ残</th>
-            <th>点検残</th>
-            <th></th>
+            <th>点検サポート残</th>
           </tr>
         </thead>
         <tbody>
@@ -84,7 +83,10 @@
               <button
                 class="customer-link"
                 @click="
-                  $emit('open-customer', { id: row.bike.customerId, name: row.bike.customer })
+                  $emit('open-customer', {
+                    id: row.bike.customerId,
+                    name: row.bike.customer,
+                  })
                 "
               >
                 {{ row.bike.customer }}
@@ -92,7 +94,9 @@
                   {{ row.customerBikeCount }}台契約
                 </small>
               </button>
-              <small class="cell-sub">{{ row.bike.maker }} {{ row.bike.model }}</small>
+              <button class="customer-link cell-sub" @click="$emit('open-bike', row.bike.id)">
+                {{ row.bike.maker }} {{ row.bike.model }}
+              </button>
             </td>
             <td>{{ row.planName }}</td>
             <td>{{ row.bike.contractStart }}〜{{ row.bike.contractEnd }}</td>
@@ -100,9 +104,6 @@
             <td>{{ row.overhaulRemaining }}/{{ row.overhaulCount }}</td>
             <td>{{ row.maintenanceRemaining }}/{{ row.maintenanceCount }}</td>
             <td>{{ row.inspectionRemaining }}/{{ row.inspectionCount }}</td>
-            <td>
-              <button class="outline small" @click="$emit('open-bike', row.bike.id)">詳細</button>
-            </td>
           </tr>
         </tbody>
       </table>

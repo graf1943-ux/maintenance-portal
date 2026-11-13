@@ -2,6 +2,7 @@
   const bikeSearch = defineModel<string>('bikeSearch', { required: true });
   const startDate = defineModel<string>('startDate', { required: true });
   const endDate = defineModel<string>('endDate', { required: true });
+  const isAdHoc = defineModel<boolean>('isAdHoc', { required: true });
   const title = defineModel<string>('title', { required: true });
   const detail = defineModel<string>('detail', { required: true });
 
@@ -24,7 +25,7 @@
       <div class="modal-head">
         <div>
           <p class="eyebrow">NEW MAINTENANCE</p>
-          <h2>メンテナンス計画を追加</h2>
+          <h2>メンテナンス計画を登録</h2>
         </div>
         <button class="close" @click="$emit('close')">×</button>
       </div>
@@ -38,13 +39,24 @@
             @change="$emit('bike-change', bikeSearch)"
           />
         </div>
-        <div><label>作業開始予定日</label><input v-model="startDate" type="date" /></div>
-        <div><label>作業完了予定日</label><input v-model="endDate" type="date" /></div>
+        <div>
+          <label>作業開始予定日</label>
+          <input v-model="startDate" type="date" :disabled="isAdHoc" />
+        </div>
+        <div>
+          <label>作業完了予定日</label>
+          <input v-model="endDate" type="date" />
+        </div>
         <div><label>計画名</label><input v-model="title" /></div>
         <div><label>作業内容</label><input v-model="detail" /></div>
       </div>
+      <label class="checkbox-label">
+        <input v-model="isAdHoc" type="checkbox" />
+        予約なしの突発作業として受付（受付と同時に作業開始）
+      </label>
       <div class="modal-note">
-        新規登録可能：{{ availableCount }} / 契約枠 {{ contractLimit }}回（予定・完了を含む）
+        新規登録可能：{{ availableCount }} / 契約枠
+        {{ contractLimit }}回（予定・完了を含む。キャンセル・中止を除く）
       </div>
       <div class="modal-actions">
         <button class="outline" @click="$emit('close')">キャンセル</button>

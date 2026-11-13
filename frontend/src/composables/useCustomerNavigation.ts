@@ -42,7 +42,7 @@ interface CustomerNavigationContext {
 export function useCustomerNavigation(ctx: CustomerNavigationContext) {
   function openCustomerBikePage(target: CustomerBikePage, bikeId: number) {
     ctx.selectedBikeId.value = bikeId;
-    ctx.selectedBikeFilter.value = target === 'history' ? null : bikeId;
+    ctx.selectedBikeFilter.value = bikeId;
     ctx.customerFilterText.value = '';
     ctx.bikeFilterText.value = '';
     ctx.searchOverhauls.value = '';

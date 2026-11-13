@@ -41,7 +41,11 @@ export function useContractUsage(ctx: ContractUsageContext) {
           ? ctx.maintenance.value
           : ctx.eventChecks.value;
     return items.filter(
-      (item) => item.bikeId === bikeId && item.status !== '完了' && item.status !== 'キャンセル'
+      (item) =>
+        item.bikeId === bikeId &&
+        item.status !== '完了' &&
+        item.status !== 'キャンセル' &&
+        item.status !== '作業中止'
     ).length;
   }
 

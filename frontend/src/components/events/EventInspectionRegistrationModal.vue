@@ -4,6 +4,7 @@
   const eventDate = defineModel<string>('eventDate', { required: true });
   const inspectionStartDate = defineModel<string>('inspectionStartDate', { required: true });
   const inspectionEndDate = defineModel<string>('inspectionEndDate', { required: true });
+  const isAdHoc = defineModel<boolean>('isAdHoc', { required: true });
 
   defineProps<{
     bikeSelected: boolean;
@@ -20,7 +21,7 @@
       <div class="modal-head">
         <div>
           <p class="eyebrow">NEW EVENT & INSPECTION</p>
-          <h2>イベント・点検を登録</h2>
+          <h2>イベント・点検サポートを登録</h2>
         </div>
         <button class="close" @click="$emit('close')">×</button>
       </div>
@@ -35,15 +36,29 @@
           />
         </div>
         <div>
-          <label>イベント名</label
-          ><input v-model="eventName" placeholder="例：年間メインイベント" />
+          <label>イベント名</label>
+          <input v-model="eventName" placeholder="例：年間メインイベント" />
         </div>
-        <div><label>イベント開催日</label><input v-model="eventDate" type="date" /></div>
-        <div><label>点検開始予定日</label><input v-model="inspectionStartDate" type="date" /></div>
-        <div><label>点検完了予定日</label><input v-model="inspectionEndDate" type="date" /></div>
+        <div>
+          <label>イベント開催日</label>
+          <input v-model="eventDate" type="date" />
+        </div>
+        <div>
+          <label>点検開始予定日</label>
+          <input v-model="inspectionStartDate" type="date" :disabled="isAdHoc" />
+        </div>
+        <div>
+          <label>点検完了予定日</label>
+          <input v-model="inspectionEndDate" type="date" />
+        </div>
       </div>
+      <label class="checkbox-label">
+        <input v-model="isAdHoc" type="checkbox" />
+        予約なしの突発点検サポートとして受付（受付と同時に点検開始）
+      </label>
       <div class="modal-note">
-        新規登録可能：{{ availableCount }} / 契約枠 {{ contractLimit }}回（予定・完了を含む）
+        新規登録可能：{{ availableCount }} / 契約枠
+        {{ contractLimit }}回（予定・完了を含む。キャンセル・中止を除く）
       </div>
       <div class="modal-actions">
         <button class="outline" @click="$emit('close')">キャンセル</button>
@@ -52,7 +67,7 @@
           :disabled="!bikeSelected || availableCount <= 0"
           @click="$emit('submit')"
         >
-          イベント・点検を登録
+          イベント・点検サポートを登録
         </button>
       </div>
     </div>
