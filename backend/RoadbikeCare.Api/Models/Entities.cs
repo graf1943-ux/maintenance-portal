@@ -64,7 +64,7 @@ public sealed record CreateWorkRequest(int BikeId, DateOnly StartDate, DateOnly?
 public sealed record UpdateWorkRequest(DateOnly StartDate, DateOnly? EndDate, string Status,
     string Title, string Detail, int ReceptionistId, bool? IsAdHoc = null);
 public sealed record WorkChecklistItem(string Item, string Result, string? Note);
-public sealed record WorkReportPart(string Name, decimal Quantity, string Unit);
+public sealed record WorkReportPart(string Name, decimal Quantity, string Unit, decimal? UnitPrice = null);
 public sealed record CompleteWorkReportRequest(int WorkMinutes, List<WorkChecklistItem>? Checklist,
     List<WorkReportPart>? Parts);
 public sealed record WorkReportData(int WorkMinutes, List<WorkChecklistItem> Checklist,

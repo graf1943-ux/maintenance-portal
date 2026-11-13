@@ -1,8 +1,9 @@
-import { ref, type Ref } from 'vue';
+import { ref, watch, type Ref } from 'vue';
 import { apiPost, apiPut } from '../api';
 import type { Bike, Page } from '../types';
 import type { ApiCustomer } from '../services/apiMappers';
 import { isAnnualContractStart, isApplicationWithinContractYear } from '../services/contractRules';
+import { findReceptionist } from '../utils/staff';
 
 export type ContractForm = {
   customerMode: 'existing' | 'new';
@@ -64,6 +65,15 @@ export function useContractRegistration(ctx: ContractRegistrationContext) {
     receptionist: '田中',
   });
   const showContractModal = ref(false);
+  const contractError = ref('');
+  watch(showContractModal, (isOpen) => {
+    if (isOpen) contractError.value = '';
+  });
+
+  function setError(message: string) {
+    contractError.value = message;
+    ctx.notice.value = message;
+  }
 
   function resetCustomerSelection() {
     contractForm.value.customerMode = 'existing';
@@ -77,32 +87,32 @@ export function useContractRegistration(ctx: ContractRegistrationContext) {
   }
 
   async function addContract() {
+    contractError.value = '';
     if (ctx.useMockData) {
-      ctx.notice.value =
-        '現在はVueモックデータ表示モードです。年間契約の登録はAPIモードで行ってください。';
+      setError('現在はVueモックデータ表示モードです。年間契約の登録はAPIモードで行ってください。');
       return;
     }
 
     const form = contractForm.value;
     const contractYear = Number(form.start.slice(0, 4));
     if (!isAnnualContractStart(form.start)) {
-      ctx.notice.value = '年間契約の開始日は12月1日にしてください。';
+      setError('年間契約の開始日は12月1日にしてください。');
       return;
     }
     if (!isApplicationWithinContractYear(form.applicationDate, contractYear)) {
-      ctx.notice.value = '年間契約の受付期限は契約開始年の12月31日です。';
+      setError('年間契約の受付期限は契約開始年の12月31日です。');
       return;
     }
     if (form.customerMode === 'existing' && form.customerId === null) {
-      ctx.notice.value = '登録済み顧客を検索して選択してください。';
+      setError('登録済み顧客を検索して選択してください。');
       return;
     }
     if (form.customerMode === 'new' && !form.customer.trim()) {
-      ctx.notice.value = '新規顧客の顧客名を入力してください。';
+      setError('新規顧客の顧客名を入力してください。');
       return;
     }
     if (form.customerMode === 'existing' && form.bikeMode === 'existing' && form.bikeId === null) {
-      ctx.notice.value = '登録済み自転車を選択してください。';
+      setError('登録済み自転車を選択してください。');
       return;
     }
 
@@ -113,11 +123,13 @@ export function useContractRegistration(ctx: ContractRegistrationContext) {
           )
         : undefined;
     if (form.bikeMode === 'existing' && !selectedBike) {
-      ctx.notice.value = '選択した自転車が見つかりません。顧客と自転車を再選択してください。';
+      setError('選択した自転車が見つかりません。顧客と自転車を再選択してください。');
       return;
     }
     if (selectedBike?.contractEnd && selectedBike.contractEnd.replace(/\//g, '-') >= form.start) {
-      ctx.notice.value = `選択した自転車の契約は${selectedBike.contractEnd}まで有効です。開始日を確認してください。`;
+      setError(
+        `選択した自転車の契約は${selectedBike.contractEnd}まで有効です。開始日を確認してください。`
+      );
       return;
     }
 
@@ -163,10 +175,7 @@ export function useContractRegistration(ctx: ContractRegistrationContext) {
         bikeId = bike.id;
       }
       if (bikeId === undefined) throw new Error('登録する自転車を選択してください。');
-      const staffMember =
-        ctx.staff.value.find(
-          (member) => member.shopId === form.shopId && member.name === form.receptionist
-        ) ?? ctx.staff.value.find((member) => member.shopId === form.shopId);
+      const staffMember = findReceptionist(ctx.staff.value, form.shopId, form.receptionist);
       if (!staffMember) throw new Error('受付担当者を登録してください。');
 
       await apiPost('/contracts', {
@@ -184,14 +193,15 @@ export function useContractRegistration(ctx: ContractRegistrationContext) {
       ctx.newOverhaulReceptionDate.value = form.applicationDate;
       ctx.notice.value =
         '年間契約を登録しました。次のステップとしてオーバーホールの受付・実施予定日を設定してください。';
+      contractError.value = '';
       ctx.page.value = 'overhaul';
       showContractModal.value = false;
       resetCustomerSelection();
       ctx.showOverhaulModal.value = true;
     } catch (error) {
-      ctx.notice.value = error instanceof Error ? error.message : '年間契約の登録に失敗しました。';
+      setError(error instanceof Error ? error.message : '年間契約の登録に失敗しました。');
     }
   }
 
-  return { contractForm, showContractModal, addContract, resetCustomerSelection };
+  return { contractForm, showContractModal, contractError, addContract, resetCustomerSelection };
 }

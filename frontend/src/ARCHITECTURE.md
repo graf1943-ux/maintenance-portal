@@ -4,7 +4,7 @@
 
 - `types/`: 画面・業務データで共有する型定義
 - `constants/`: ページ名と表示名などの固定値
-- `utils/`: 一覧検索・並び替えなど、画面に依存しない処理
+- `utils/`: 一覧検索・並び替え、日付入力形式、担当者検索など、画面に依存しない処理
 - `services/`: APIレスポンス変換と契約日付ルール
 - `fixtures/`: Vueモックモード用の初期サンプルデータ
 - `composables/`: APIデータ、認証、一覧集計、登録・編集フローなどの状態と処理
@@ -26,12 +26,17 @@
 - `composables/useMailPreview.ts` は案内メールのプレビュー状態とモック送信後の通知を担当します。
 - `composables/usePortalNavigation.ts` はページ切替時の通知クリアと、モック環境の表示ロール切り替えを担当します。
 - `composables/useDetailSelection.ts` は顧客・自転車詳細を開く選択状態と、顧客ID連携フォームの初期化を担当します。
-- `composables/useBikeDetails.ts` は自転車詳細モーダルの契約情報、自転車プロフィール、コンポーネント交換履歴の表示・更新を担当します。
+- `composables/useBikeDetails.ts` は自転車詳細モーダルの契約プラン、店舗名、残回数の表示データを組み立てます。
+- `composables/useBikeProfileEditor.ts` は自転車プロフィールの編集・保存を担当します。
+- `composables/useBikeComponents.ts` はコンポーネント履歴の取得・登録を担当します。
 - `composables/useCustomerProfileEditor.ts` は顧客詳細画面の名前・連絡先の編集と保存を担当します。
 - `composables/useMasterDataRegistration.ts` は店舗・受付担当者・プラン登録のフォーム状態、モーダル状態、登録処理を担当します。
 - `composables/useContractRegistration.ts` は契約登録フォーム、登録モーダル、顧客・自転車・契約の登録と次の作業受付への遷移を担当します。
-- `composables/useWorkLifecycle.ts` と `useWorkEditing.ts` は完了・編集フォーム状態と、作業の状態遷移・編集保存をそれぞれ担当します。
+- `composables/useWorkLifecycle.ts`、`useWorkCompletion.ts`、`useWorkStop.ts`、`useWorkEditing.ts` は作業開始・完了・中止・編集の状態と処理を分担します。
+- `composables/useAdHocScheduleDates.ts` は単発作業の切替に伴う日付の自動設定・復元を担当します。
 - `useDashboardData.ts`、`useStaffLists.ts`、`useCustomerPortal.ts`、`useCustomerDetails.ts`、`useActivityLists.ts` は各画面用の集計行を作ります。
+- `useDashboardReminders.ts` は案内待ち予定の期限判定と日付更新タイマーを担当します。
+- `composables/useStaffCalendar.ts` と `components/calendar/StaffCalendarView.vue` はスタッフ向け月間作業カレンダーの表示データとUIを担当します。
 - `components/` の画面・モーダルはpropsで表示データを受け取り、イベントで操作を親へ通知します。
 - `components/work/WorkCompletionModal.vue` は完了日・作業時間・点検チェック・使用部品・作業メモを入力します。
 - 完了APIは点検・部品・作業時間を作業履歴に保存し、店舗・受付担当者名は完了時点の値を報告データに保持します。

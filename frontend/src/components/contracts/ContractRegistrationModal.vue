@@ -12,6 +12,7 @@
     plans: Plan[];
     shops: ApiShop[];
     staff: ApiStaff[];
+    error: string;
   }>();
 
   const matchingCustomers = computed(() => {
@@ -275,6 +276,9 @@
       <div class="modal-note">
         契約受付期限は契約開始年の12月31日。契約期間は12月1日〜翌年11月30日です。
       </div>
+      <p v-if="props.error" class="customer-identity-feedback error" role="alert">
+        {{ props.error }}
+      </p>
       <div class="modal-actions">
         <button class="outline" @click="$emit('close')">キャンセル</button>
         <button class="primary" @click="$emit('submit')">契約を登録してOH予定へ進む</button>

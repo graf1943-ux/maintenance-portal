@@ -3,6 +3,7 @@ import { apiPut } from '../api';
 import type { Bike, EventCheck, Work } from '../types';
 import { dateIso } from '../services/apiMappers';
 import { isOverhaulSeason } from '../services/contractRules';
+import { findReceptionist } from '../utils/staff';
 
 export type EditableWorkKind = 'maintenance' | 'event' | 'overhaul';
 export type EditTarget = { kind: EditableWorkKind; id: number };
@@ -28,8 +29,10 @@ export function useWorkEditing(ctx: WorkEditingContext) {
   const editTitle = ref('');
   const editDetail = ref('');
   const editReceptionist = ref('');
+  const editError = ref('');
 
   function openEdit(kind: EditableWorkKind, item: Work | EventCheck) {
+    editError.value = '';
     editTarget.value = { kind, id: item.id };
     const startDate = 'inspectionDate' in item ? item.inspectionDate : item.date;
     editDate.value = startDate.replace(/\//g, '-');
@@ -53,8 +56,9 @@ export function useWorkEditing(ctx: WorkEditingContext) {
         !isOverhaulSeason(editDate.value, contractYear) ||
         (editEndDate.value && !isOverhaulSeason(editEndDate.value, contractYear))
       ) {
-        ctx.notice.value =
+        editError.value =
           'オーバーホールの実施予定日は契約開始年の11月1日〜翌年2月末の期間で設定してください。';
+        ctx.notice.value = editError.value;
         return;
       }
     }
@@ -68,16 +72,15 @@ export function useWorkEditing(ctx: WorkEditingContext) {
     const item = list.find((candidate) => candidate.id === id);
     if (!item) return;
 
-    const staffMember =
-      ctx.staff.value.find(
-        (candidate) => candidate.name === editReceptionist.value && candidate.shopId === item.shopId
-      ) ?? ctx.staff.value.find((candidate) => candidate.shopId === item.shopId);
+    const staffMember = findReceptionist(ctx.staff.value, item.shopId, editReceptionist.value);
     if (!staffMember) {
-      ctx.notice.value = '受付担当者を確認してください。';
+      editError.value = '受付担当者を確認してください。';
+      ctx.notice.value = editError.value;
       return;
     }
     if (editEndDate.value && editEndDate.value < editDate.value) {
-      ctx.notice.value = '完了日は開始日以降の日付にしてください。';
+      editError.value = '完了日は開始日以降の日付にしてください。';
+      ctx.notice.value = editError.value;
       return;
     }
 
@@ -100,7 +103,11 @@ export function useWorkEditing(ctx: WorkEditingContext) {
           }),
         '予定内容を更新しました。契約回数は変更していません。'
       );
-      if (ok) editTarget.value = null;
+      if (ok) {
+        editTarget.value = null;
+      } else {
+        editError.value = ctx.notice.value;
+      }
       return;
     }
 
@@ -118,7 +125,11 @@ export function useWorkEditing(ctx: WorkEditingContext) {
         }),
       '予定内容を更新しました。契約回数は変更していません。'
     );
-    if (ok) editTarget.value = null;
+    if (ok) {
+      editTarget.value = null;
+    } else {
+      editError.value = ctx.notice.value;
+    }
   }
 
   return {
@@ -128,6 +139,7 @@ export function useWorkEditing(ctx: WorkEditingContext) {
     editTitle,
     editDetail,
     editReceptionist,
+    editError,
     openEdit,
     saveEdit,
   };

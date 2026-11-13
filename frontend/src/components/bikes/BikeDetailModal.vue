@@ -1,7 +1,8 @@
 <script setup lang="ts">
   import type { Bike, Plan } from '../../types';
   import { dateSlash, type ApiBikeComponent } from '../../services/apiMappers';
-  import type { BikeComponentForm, BikeProfileForm } from '../../composables/useBikeDetails';
+  import type { BikeComponentForm } from '../../composables/useBikeComponents';
+  import type { BikeProfileForm } from '../../composables/useBikeProfileEditor';
 
   defineProps<{
     bike: Bike;

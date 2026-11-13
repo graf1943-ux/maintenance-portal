@@ -2,6 +2,7 @@ import type { Page } from '../types';
 
 export const pageTitles: Record<Page, string> = {
   dashboard: 'ダッシュボード',
+  calendar: '作業カレンダー',
   bikes: '顧客・自転車・契約管理',
   shops: '店舗・担当者管理',
   plans: 'プラン設定',

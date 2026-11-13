@@ -19,7 +19,7 @@
   }
 
   function addPart() {
-    parts.value = [...parts.value, { name: '', quantity: 1, unit: '個' }];
+    parts.value = [...parts.value, { name: '', quantity: 1, unit: '個', unitPrice: 0 }];
   }
 
   function removePart(index: number) {
@@ -98,6 +98,15 @@
               step="0.01"
             />
             <input v-model="part.unit" aria-label="単位" maxlength="20" placeholder="個・本など" />
+            <input
+              v-model.number="part.unitPrice"
+              aria-label="部品単価（円）"
+              type="number"
+              min="0"
+              max="100000000"
+              step="1"
+              placeholder="単価（円）"
+            />
             <button class="outline small" @click="removePart(index)">削除</button>
           </div>
           <p v-if="parts.length === 0" class="muted">使用部品はありません。</p>

@@ -1,5 +1,6 @@
-import { ref, type Ref } from 'vue';
+import { ref, watch, type Ref } from 'vue';
 import { apiPost } from '../api';
+import type { ApiShop } from '../services/apiMappers';
 
 type ApiAction = (action: () => Promise<unknown>, success: string) => Promise<boolean>;
 export type NewPlan = {
@@ -11,6 +12,7 @@ export type NewPlan = {
 
 interface MasterDataRegistrationContext {
   notice: Ref<string>;
+  shops: Ref<ApiShop[]>;
   apiAction: ApiAction;
 }
 
@@ -30,11 +32,25 @@ export function useMasterDataRegistration(ctx: MasterDataRegistrationContext) {
   const showPlanModal = ref(false);
   const showShopModal = ref(false);
   const showStaffModal = ref(false);
+  const shopError = ref('');
+  const staffError = ref('');
+  const planError = ref('');
+  watch(showShopModal, (isOpen) => {
+    if (isOpen) shopError.value = '';
+  });
+  watch(showStaffModal, (isOpen) => {
+    if (isOpen) staffError.value = '';
+  });
+  watch(showPlanModal, (isOpen) => {
+    if (isOpen) planError.value = '';
+  });
 
   async function addPlan() {
+    planError.value = '';
     const name = newPlan.value.name.trim();
     if (!name) {
-      ctx.notice.value = 'プラン名を入力してください。';
+      planError.value = 'プラン名を入力してください。';
+      ctx.notice.value = planError.value;
       return;
     }
     const counts = [
@@ -43,7 +59,8 @@ export function useMasterDataRegistration(ctx: MasterDataRegistrationContext) {
       newPlan.value.inspectionCount,
     ];
     if (counts.some((count) => !Number.isInteger(count) || count < 0)) {
-      ctx.notice.value = '各回数は0以上の整数で入力してください。';
+      planError.value = '各回数は0以上の整数で入力してください。';
+      ctx.notice.value = planError.value;
       return;
     }
 
@@ -54,11 +71,17 @@ export function useMasterDataRegistration(ctx: MasterDataRegistrationContext) {
     if (ok) {
       newPlan.value = { name: '', overhaulCount: 1, maintenanceCount: 2, inspectionCount: 1 };
       showPlanModal.value = false;
+    } else {
+      planError.value = ctx.notice.value;
     }
   }
 
   async function addShop() {
-    if (!newShopName.value.trim()) return;
+    shopError.value = '';
+    if (!newShopName.value.trim()) {
+      shopError.value = '店舗名を入力してください。';
+      return;
+    }
     const ok = await ctx.apiAction(
       () =>
         apiPost('/shops', {
@@ -73,11 +96,21 @@ export function useMasterDataRegistration(ctx: MasterDataRegistrationContext) {
       newShopAddress.value = '';
       newShopPhone.value = '';
       showShopModal.value = false;
+    } else {
+      shopError.value = ctx.notice.value;
     }
   }
 
   async function addStaff() {
-    if (!newStaffName.value.trim()) return;
+    staffError.value = '';
+    if (!newStaffName.value.trim()) {
+      staffError.value = '担当者名を入力してください。';
+      return;
+    }
+    if (ctx.shops.value.length === 0) {
+      staffError.value = '先に店舗を登録してください。';
+      return;
+    }
     const ok = await ctx.apiAction(
       () =>
         apiPost('/staff', {
@@ -90,6 +123,8 @@ export function useMasterDataRegistration(ctx: MasterDataRegistrationContext) {
     if (ok) {
       newStaffName.value = '';
       showStaffModal.value = false;
+    } else {
+      staffError.value = ctx.notice.value;
     }
   }
 
@@ -103,6 +138,9 @@ export function useMasterDataRegistration(ctx: MasterDataRegistrationContext) {
     showPlanModal,
     showShopModal,
     showStaffModal,
+    shopError,
+    staffError,
+    planError,
     addPlan,
     addShop,
     addStaff,

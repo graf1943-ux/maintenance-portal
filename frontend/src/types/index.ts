@@ -1,5 +1,6 @@
 export type Page =
   | 'dashboard'
+  | 'calendar'
   | 'bikes'
   | 'shops'
   | 'plans'
@@ -73,6 +74,8 @@ export type WorkReportPart = {
   name: string;
   quantity: number;
   unit: string;
+  /** 部品の単価（円）。旧履歴との互換性のため未設定を許容します。 */
+  unitPrice?: number | null;
 };
 export type WorkReport = {
   workMinutes: number;

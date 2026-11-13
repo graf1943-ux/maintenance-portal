@@ -317,6 +317,8 @@ public sealed class RoadbikeCarePersistenceService(RoadbikeCareDbContext db)
                 part.Name.Length > 100 ||
                 part.Quantity <= 0 ||
                 part.Quantity > 100000 ||
+                part.UnitPrice is < 0 or > 100000000 ||
+                (part.UnitPrice is decimal unitPrice && unitPrice != decimal.Truncate(unitPrice)) ||
                 string.IsNullOrWhiteSpace(part.Unit) ||
                 part.Unit.Length > 20))
         {

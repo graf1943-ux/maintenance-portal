@@ -1143,7 +1143,7 @@ td b {
   grid-template-columns: minmax(120px, 1fr) 100px minmax(140px, 1.4fr) auto;
 }
 .completion-part-row {
-  grid-template-columns: minmax(160px, 1fr) 100px 100px auto;
+  grid-template-columns: minmax(140px, 1fr) 85px 85px 120px auto;
 }
 .completion-check-row input,
 .completion-check-row select,
@@ -1157,6 +1157,29 @@ td b {
   font-size: 11px;
   background: #fff;
   color: #52657c;
+}
+.work-report-quote-totals {
+  width: min(100%, 340px);
+  margin: 16px 0 16px auto;
+}
+.work-report-quote-totals > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+}
+.work-report-quote-totals dt,
+.work-report-quote-totals dd {
+  margin: 0;
+}
+.work-report-quote-totals .grand-total {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid #dce3eb;
+  font-weight: 700;
+}
+.work-report-quote-totals .grand-total dd {
+  font-size: 20px;
 }
 .work-report-backdrop {
   z-index: 7;

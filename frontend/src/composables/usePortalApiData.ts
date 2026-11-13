@@ -71,8 +71,8 @@ export function usePortalApiData(ctx: PortalApiDataContext) {
     ctx.shops.value = shops;
     ctx.staff.value = staff;
     ctx.plans.value = plans;
-    const receptionistName = (id: number) =>
-      ctx.staff.value.find((member) => member.id === id)?.name ?? '';
+    const staffById = new Map(staff.map((member) => [member.id, member]));
+    const receptionistName = (id: number) => staffById.get(id)?.name ?? '';
     ctx.bikes.value = bikes.map((item) => mapBike(item, receptionistName));
     ctx.overhauls.value = overhauls.map((item) => mapWork(item, receptionistName));
     ctx.maintenance.value = maintenance.map((item) => mapWork(item, receptionistName));

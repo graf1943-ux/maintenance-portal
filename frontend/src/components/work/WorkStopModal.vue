@@ -1,4 +1,5 @@
 <script setup lang="ts">
+  defineProps<{ error: string }>();
   const date = defineModel<string>('date', { required: true });
   const reason = defineModel<string>('reason', { required: true });
 
@@ -20,6 +21,7 @@
       <input v-model="date" type="date" />
       <label>中止理由（任意）</label>
       <textarea v-model="reason" rows="4" placeholder="中止理由や再受付時の申し送り"></textarea>
+      <p v-if="error" class="customer-identity-feedback error" role="alert">{{ error }}</p>
       <div class="modal-note">
         この作業は終了状態になります。再開する場合は新しい作業として登録してください。
       </div>

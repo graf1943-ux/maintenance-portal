@@ -14,6 +14,25 @@ interface ContractUsageContext {
 
 /** 契約の残回数と、未完了予定を考慮した登録可能回数を計算します。 */
 export function useContractUsage(ctx: ContractUsageContext) {
+  const activeScheduleCounts = computed(() => {
+    const countByBike = (items: (Work | EventCheck)[]) => {
+      const counts = new Map<number, number>();
+      for (const item of items) {
+        if (item.status === '完了' || item.status === 'キャンセル' || item.status === '作業中止') {
+          continue;
+        }
+        counts.set(item.bikeId, (counts.get(item.bikeId) ?? 0) + 1);
+      }
+      return counts;
+    };
+
+    return {
+      overhaul: countByBike(ctx.overhauls.value),
+      maintenance: countByBike(ctx.maintenance.value),
+      inspection: countByBike(ctx.eventChecks.value),
+    };
+  });
+
   function limitFor(bike: Bike, kind: ContractService) {
     const plan = ctx.planFor(bike);
     return kind === 'maintenance'
@@ -34,19 +53,7 @@ export function useContractUsage(ctx: ContractUsageContext) {
   }
 
   function activeScheduleCount(bikeId: number, kind: ContractService) {
-    const items =
-      kind === 'overhaul'
-        ? ctx.overhauls.value
-        : kind === 'maintenance'
-          ? ctx.maintenance.value
-          : ctx.eventChecks.value;
-    return items.filter(
-      (item) =>
-        item.bikeId === bikeId &&
-        item.status !== '完了' &&
-        item.status !== 'キャンセル' &&
-        item.status !== '作業中止'
-    ).length;
+    return activeScheduleCounts.value[kind].get(bikeId) ?? 0;
   }
 
   function scheduleRemaining(bike: Bike, kind: ContractService) {

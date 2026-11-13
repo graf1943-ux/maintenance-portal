@@ -7,7 +7,7 @@
   const detail = defineModel<string>('detail', { required: true });
   const receptionist = defineModel<string>('receptionist', { required: true });
 
-  defineProps<{ staff: ApiStaff[] }>();
+  defineProps<{ staff: ApiStaff[]; error: string }>();
   defineEmits<{ close: []; submit: [] }>();
 </script>
 
@@ -29,6 +29,7 @@
       <select v-model="receptionist">
         <option v-for="person in staff" :key="person.id">{{ person.name }}</option>
       </select>
+      <p v-if="error" class="customer-identity-feedback error" role="alert">{{ error }}</p>
       <div class="modal-note">
         開始日・完了予定日を変更できます。完了日は開始日以降にしてください。契約回数は作業完了時のみ消費します。
       </div>

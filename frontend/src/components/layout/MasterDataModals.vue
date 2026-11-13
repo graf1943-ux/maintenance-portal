@@ -7,6 +7,9 @@
     showStaff: boolean;
     showPlan: boolean;
     shops: ApiShop[];
+    shopError: string;
+    staffError: string;
+    planError: string;
   }>();
 
   const shopName = defineModel<string>('shopName', { required: true });
@@ -39,6 +42,7 @@
       <label>店舗名</label><input v-model="shopName" placeholder="例：大阪店" /> <label>住所</label
       ><input v-model="shopAddress" placeholder="住所" /> <label>電話番号</label
       ><input v-model="shopPhone" placeholder="電話番号" />
+      <p v-if="shopError" class="customer-identity-feedback error" role="alert">{{ shopError }}</p>
       <div class="modal-actions">
         <button class="outline" @click="$emit('close-shop')">キャンセル</button>
         <button class="primary" @click="$emit('add-shop')">店舗を登録</button>
@@ -60,6 +64,9 @@
         <option v-for="shop in shops" :key="shop.id" :value="shop.id">{{ shop.name }}</option>
       </select>
       <label>担当者名</label><input v-model="staffName" placeholder="担当者名" />
+      <p v-if="staffError" class="customer-identity-feedback error" role="alert">
+        {{ staffError }}
+      </p>
       <div class="modal-actions">
         <button class="outline" @click="$emit('close-staff')">キャンセル</button>
         <button class="primary" @click="$emit('add-staff')">担当者を登録</button>
@@ -84,6 +91,7 @@
       <label>点検サポート回数</label>
       <input v-model.number="plan.inspectionCount" type="number" min="0" step="1" />
       <div class="modal-note">回数はそれぞれ独立して設定します。</div>
+      <p v-if="planError" class="customer-identity-feedback error" role="alert">{{ planError }}</p>
       <div class="modal-actions">
         <button class="outline" @click="$emit('close-plan')">キャンセル</button>
         <button class="primary" @click="$emit('add-plan')">プランを追加</button>

@@ -37,6 +37,13 @@
         >
           <span class="nav-icon">▦</span>ダッシュボード
         </button>
+        <button
+          class="nav-item"
+          :class="{ active: page === 'calendar' }"
+          @click="$emit('navigate', 'calendar')"
+        >
+          <span class="nav-icon">▦</span>作業カレンダー
+        </button>
       </div>
       <div class="nav-group">
         <div class="nav-group-title">顧客・契約管理</div>

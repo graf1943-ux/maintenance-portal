@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, defineAsyncComponent, h, ref, watch, type Component, type Ref } from 'vue';
+  import { computed, defineAsyncComponent, h, ref, type Component } from 'vue';
   import AppSidebar from './components/layout/AppSidebar.vue';
   import AppHeader from './components/layout/AppHeader.vue';
   function lazyComponent<T extends Component>(loader: () => Promise<{ default: T }>) {
@@ -14,6 +14,9 @@
     });
   }
   const DashboardView = lazyComponent(() => import('./components/dashboard/DashboardView.vue'));
+  const StaffCalendarView = lazyComponent(
+    () => import('./components/calendar/StaffCalendarView.vue')
+  );
   const BikeContractsView = lazyComponent(() => import('./components/bikes/BikeContractsView.vue'));
   const BikeDetailModal = lazyComponent(() => import('./components/bikes/BikeDetailModal.vue'));
   const CustomerDetailModal = lazyComponent(
@@ -82,7 +85,13 @@
   import { usePortalNavigation } from './composables/usePortalNavigation';
   import { useDetailSelection } from './composables/useDetailSelection';
   import { useBikeDetails } from './composables/useBikeDetails';
+  import { useBikeProfileEditor } from './composables/useBikeProfileEditor';
+  import { useBikeComponents } from './composables/useBikeComponents';
+  import { useStaffCalendar } from './composables/useStaffCalendar';
+  import { useAdHocScheduleDates } from './composables/useAdHocScheduleDates';
   import { useCustomerProfileEditor } from './composables/useCustomerProfileEditor';
+  import { useWorkStop } from './composables/useWorkStop';
+  import { useWorkCompletion } from './composables/useWorkCompletion';
   const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true';
   const mockData = createMockData();
   const dataSourceStatus = ref<'mock' | 'api' | 'error'>(USE_MOCK_DATA ? 'mock' : 'api');
@@ -120,6 +129,7 @@
   const bikes = ref<Bike[]>(mockData.bikes);
   const {
     selectedBikeFilter,
+    selectedBikeFilterName,
     customerFilterText,
     bikeFilterText,
     matchesBikeFilter,
@@ -130,6 +140,12 @@
   const maintenance = ref<Work[]>(mockData.maintenance);
   const eventChecks = ref<EventCheck[]>(mockData.eventChecks);
   const histories = ref<History[]>(mockData.histories);
+  const { entries: staffCalendarEntries } = useStaffCalendar({
+    bikes,
+    overhauls,
+    maintenance,
+    eventChecks,
+  });
   const { dataSourceTitle, dataSourceMessage, reloadData, apiAction } = usePortalApiData({
     useMockData: USE_MOCK_DATA,
     dataSourceStatus,
@@ -171,30 +187,24 @@
     eventChecks,
     planFor,
   });
+  const { bikeDetails } = useBikeDetails({ selectedBike, shops, planFor, remaining });
   const {
-    bikeDetails,
     profile: bikeProfile,
     profileEditing: bikeProfileEditing,
     profileSaving: bikeProfileSaving,
     profileError: bikeProfileError,
+    startProfileEditing,
+    cancelProfileEditing,
+    saveProfile: saveBikeProfile,
+  } = useBikeProfileEditor(selectedBike, showBikeDetail, apiAction);
+  const {
     components: bikeComponents,
     componentsLoading: bikeComponentsLoading,
     componentForm: bikeComponentForm,
     componentSaving: bikeComponentSaving,
     componentError: bikeComponentError,
-    startProfileEditing,
-    cancelProfileEditing,
-    saveProfile: saveBikeProfile,
     addComponent: addBikeComponent,
-  } = useBikeDetails({
-    useMockData: USE_MOCK_DATA,
-    selectedBike,
-    showBikeDetail,
-    shops,
-    planFor,
-    remaining,
-    apiAction,
-  });
+  } = useBikeComponents({ useMockData: USE_MOCK_DATA, selectedBike, showBikeDetail, apiAction });
   const newOverhaulBike = ref(1),
     newOverhaulReceptionDate = ref('2026-12-15'),
     newOverhaulDate = ref('2027-01-15'),
@@ -214,30 +224,14 @@
     newInspectionDate = ref('2027-07-28'),
     newInspectionEndDate = ref('2027-07-28'),
     newEventIsAdHoc = ref(false);
-  const localDateInput = () => {
-    const date = new Date();
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  };
-  function bindAdHocDates(isAdHoc: Ref<boolean>, dates: Ref<string>[]) {
-    let previousDates: string[] | null = null;
-    watch(isAdHoc, (enabled) => {
-      if (enabled) {
-        previousDates = dates.map((date) => date.value);
-        const today = localDateInput();
-        dates.forEach((date) => (date.value = today));
-      } else if (previousDates) {
-        dates.forEach((date, index) => (date.value = previousDates?.[index] ?? date.value));
-        previousDates = null;
-      }
-    });
-  }
-  bindAdHocDates(newOverhaulIsAdHoc, [
-    newOverhaulReceptionDate,
-    newOverhaulDate,
-    newOverhaulEndDate,
+  useAdHocScheduleDates([
+    {
+      enabled: newOverhaulIsAdHoc,
+      dates: [newOverhaulReceptionDate, newOverhaulDate, newOverhaulEndDate],
+    },
+    { enabled: newWorkIsAdHoc, dates: [newWorkDate, newWorkEndDate] },
+    { enabled: newEventIsAdHoc, dates: [newInspectionDate, newInspectionEndDate] },
   ]);
-  bindAdHocDates(newWorkIsAdHoc, [newWorkDate, newWorkEndDate]);
-  bindAdHocDates(newEventIsAdHoc, [newInspectionDate, newInspectionEndDate]);
   const { bikeLabel, setBikeFromLabel } = useBikeOptions({
     bikes,
     overhaulBikeId: newOverhaulBike,
@@ -338,7 +332,7 @@
     pendingCount,
     dashboardRows,
     reminders,
-    today: currentDate,
+    todayLabel: today,
   } = useDashboardData({
     bikes,
     overhauls,
@@ -346,11 +340,6 @@
     eventChecks,
     histories,
     sortRows: sortByDate,
-  });
-  const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
-  const today = computed(() => {
-    const date = currentDate.value;
-    return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日（${weekdays[date.getDay()]}）`;
   });
   const { historyRows, historyCount, messageRows } = useActivityLists({
     bikes,
@@ -360,10 +349,6 @@
     searchHistory,
     searchMessages,
     sortRows: sortByDate,
-  });
-  const selectedBikeFilterName = computed(() => {
-    const bike = bikes.value.find((item) => item.id === selectedBikeFilter.value);
-    return bike ? `${bike.maker} ${bike.model}` : '';
   });
   const {
     customerName: customerPortalName,
@@ -412,6 +397,15 @@
     searchHistory,
     useMockData: USE_MOCK_DATA,
   });
+  const { updateStatus, startWork } = useWorkLifecycle({
+    useMockData: USE_MOCK_DATA,
+    staff,
+    overhauls,
+    maintenance,
+    eventChecks,
+    notice,
+    apiAction: (action, success) => apiAction(action, success),
+  });
   const {
     completionTarget,
     completionMemo,
@@ -420,18 +414,17 @@
     completionChecklist,
     completionParts,
     completionError,
-    stopTarget,
-    stopReason,
-    stopDate,
-    updateStatus,
-    startWork,
     startCompletion,
     confirmCompletion,
-    startStop,
-    confirmStop,
-  } = useWorkLifecycle({
+  } = useWorkCompletion({
+    overhauls,
+    maintenance,
+    eventChecks,
+    notice,
+    apiAction: (action, success) => apiAction(action, success),
+  });
+  const { stopTarget, stopReason, stopDate, stopError, startStop, confirmStop } = useWorkStop({
     useMockData: USE_MOCK_DATA,
-    staff,
     overhauls,
     maintenance,
     eventChecks,
@@ -439,7 +432,7 @@
     notice,
     apiAction: (action, success) => apiAction(action, success),
   });
-  const { contractForm, showContractModal, addContract, resetCustomerSelection } =
+  const { contractForm, showContractModal, contractError, addContract, resetCustomerSelection } =
     useContractRegistration({
       useMockData: USE_MOCK_DATA,
       customers,
@@ -465,11 +458,15 @@
     showPlanModal,
     showShopModal,
     showStaffModal,
+    shopError,
+    staffError,
+    planError,
     addPlan,
     addShop,
     addStaff,
   } = useMasterDataRegistration({
     notice,
+    shops,
     apiAction: (action, success) => apiAction(action, success),
   });
 
@@ -480,6 +477,7 @@
     editTitle,
     editDetail,
     editReceptionist,
+    editError,
     openEdit,
     saveEdit,
   } = useWorkEditing({
@@ -496,6 +494,9 @@
     overhaulScheduleCapacity,
     maintenanceScheduleCapacity,
     eventScheduleCapacity,
+    overhaulError,
+    maintenanceError,
+    eventError,
     addOverhaul,
     addMaintenance,
     addEvent,
@@ -584,6 +585,11 @@
             @sort="toggleListSort('dashboard', $event)"
             @open-customer="openCustomerDetail"
             @open-bike="openBikeDetail"
+          />
+          <StaffCalendarView
+            v-else-if="page === 'calendar'"
+            :entries="staffCalendarEntries"
+            @open-item="openEdit($event.kind, $event.item)"
           />
           <ShopsView
             v-else-if="page === 'shops'"
@@ -788,6 +794,7 @@
     <ContractRegistrationModal
       v-if="showContractModal"
       v-model:form="contractForm"
+      :error="contractError"
       :bikes="bikes"
       :customers="customers"
       :plans="plans"
@@ -804,6 +811,9 @@
       :show-shop="showShopModal"
       :show-staff="showStaffModal"
       :show-plan="showPlanModal"
+      :shop-error="shopError"
+      :staff-error="staffError"
+      :plan-error="planError"
       v-model:shop-name="newShopName"
       v-model:shop-address="newShopAddress"
       v-model:shop-phone="newShopPhone"
@@ -830,6 +840,7 @@
       :bike-selected="Boolean(overhaulScheduleCapacity.bike)"
       :available-count="overhaulScheduleCapacity.available"
       :contract-limit="overhaulScheduleCapacity.limit"
+      :error="overhaulError"
       @bike-change="setBikeFromLabel($event, 'overhaul')"
       @close="
         showOverhaulModal = false;
@@ -848,6 +859,7 @@
       :bike-selected="Boolean(maintenanceScheduleCapacity.bike)"
       :available-count="maintenanceScheduleCapacity.available"
       :contract-limit="maintenanceScheduleCapacity.limit"
+      :error="maintenanceError"
       @bike-change="setBikeFromLabel($event, 'maintenance')"
       @close="
         showMaintenanceModal = false;
@@ -866,6 +878,7 @@
       :bike-selected="Boolean(eventScheduleCapacity.bike)"
       :available-count="eventScheduleCapacity.available"
       :contract-limit="eventScheduleCapacity.limit"
+      :error="eventError"
       @bike-change="setBikeFromLabel($event, 'event')"
       @close="
         showEventModal = false;
@@ -893,6 +906,7 @@
       v-if="stopTarget"
       v-model:date="stopDate"
       v-model:reason="stopReason"
+      :error="stopError"
       @close="stopTarget = null"
       @submit="confirmStop"
     />
@@ -904,6 +918,7 @@
       v-model:detail="editDetail"
       v-model:receptionist="editReceptionist"
       :staff="staff"
+      :error="editError"
       @close="editTarget = null"
       @submit="saveEdit"
     />

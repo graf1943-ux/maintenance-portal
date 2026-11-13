@@ -10,6 +10,7 @@
     bikeSelected: boolean;
     availableCount: number;
     contractLimit: number;
+    error: string;
   }>();
 
   defineEmits<{
@@ -58,6 +59,13 @@
         新規登録可能：{{ availableCount }} / 契約枠
         {{ contractLimit }}回（予定・完了を含む。キャンセル・中止を除く）
       </div>
+      <p v-if="!bikeSelected" class="customer-identity-feedback error" role="alert">
+        顧客・自転車を候補から選択してください。
+      </p>
+      <p v-else-if="availableCount < 1" class="customer-identity-feedback error" role="alert">
+        この自転車は契約上限回数に達しているため登録できません。
+      </p>
+      <p v-if="error" class="customer-identity-feedback error" role="alert">{{ error }}</p>
       <div class="modal-actions">
         <button class="outline" @click="$emit('close')">キャンセル</button>
         <button

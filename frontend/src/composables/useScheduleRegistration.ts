@@ -1,9 +1,11 @@
-import type { ComputedRef, Ref } from 'vue';
+import { ref, watch, type ComputedRef, type Ref } from 'vue';
 import { apiPost } from '../api';
 import type { Bike, EventCheck, Work } from '../types';
 import { dateSlash } from '../services/apiMappers';
 import { isOverhaulSeason } from '../services/contractRules';
 import type { ContractService, ScheduleCapacity } from './useContractUsage';
+import { findReceptionist } from '../utils/staff';
+import { nextId } from '../utils/id';
 
 type StaffMember = { id: number; shopId: number; name: string; role: string };
 type ApiAction = (action: () => Promise<unknown>, success: string) => Promise<boolean>;
@@ -56,25 +58,52 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
   const overhaulScheduleCapacity = ctx.scheduleCapacityFor(ctx.newOverhaulBike, 'overhaul');
   const maintenanceScheduleCapacity = ctx.scheduleCapacityFor(ctx.newWorkBike, 'maintenance');
   const eventScheduleCapacity = ctx.scheduleCapacityFor(ctx.newEventBike, 'inspection');
+  const overhaulError = ref('');
+  const maintenanceError = ref('');
+  const eventError = ref('');
+  watch(ctx.showOverhaulModal, (isOpen) => {
+    if (isOpen) overhaulError.value = '';
+  });
+  watch(ctx.showMaintenanceModal, (isOpen) => {
+    if (isOpen) maintenanceError.value = '';
+  });
+  watch(ctx.showEventModal, (isOpen) => {
+    if (isOpen) eventError.value = '';
+  });
+
+  function setError(error: Ref<string>, message: string) {
+    error.value = message;
+    ctx.notice.value = message;
+  }
+
+  function receptionistFor(bike: Bike, error: Ref<string>) {
+    const receptionist = findReceptionist(ctx.staff.value, bike.shopId, bike.receptionist);
+    if (!receptionist) setError(error, '受付担当者を確認してください。');
+    return receptionist;
+  }
 
   async function addOverhaul() {
+    overhaulError.value = '';
     if (ctx.bikeLabel(ctx.newOverhaulBike.value) !== ctx.overhaulBikeSearch.value) {
-      ctx.notice.value = '顧客・自転車は候補から選択してください。';
+      setError(overhaulError, '顧客・自転車は候補から選択してください。');
       return;
     }
     const b = ctx.bikes.value.find((x) => x.id === ctx.newOverhaulBike.value);
     if (!b) {
-      ctx.notice.value = '登録対象の自転車を選択してください。';
+      setError(overhaulError, '登録対象の自転車を選択してください。');
       return;
     }
     if (ctx.scheduleRemaining(b, 'overhaul') <= 0) {
-      ctx.notice.value = `${b.maker} ${b.model} のオーバーホールは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`;
+      setError(
+        overhaulError,
+        `${b.maker} ${b.model} のオーバーホールは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`
+      );
       return;
     }
     const receptionDate = ctx.newOverhaulReceptionDate.value;
     const contractYear = Number(b.contractStart.slice(0, 4));
     if (!receptionDate || receptionDate > `${contractYear}-12-31`) {
-      ctx.notice.value = 'オーバーホールの受付期限は契約開始年の12月31日です。';
+      setError(overhaulError, 'オーバーホールの受付期限は契約開始年の12月31日です。');
       return;
     }
     if (
@@ -82,29 +111,28 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
       (ctx.newOverhaulEndDate.value &&
         !isOverhaulSeason(ctx.newOverhaulEndDate.value, contractYear))
     ) {
-      ctx.notice.value =
-        'オーバーホールの実施予定日は契約開始年の11月1日〜翌年2月末の期間で設定してください。';
+      setError(
+        overhaulError,
+        'オーバーホールの実施予定日は契約開始年の11月1日〜翌年2月末の期間で設定してください。'
+      );
       return;
     }
     if (receptionDate > ctx.newOverhaulDate.value) {
-      ctx.notice.value =
-        '受付日は実施予定日以前の日付にしてください。同日での受付・実施は可能です。';
+      setError(
+        overhaulError,
+        '受付日は実施予定日以前の日付にしてください。同日での受付・実施は可能です。'
+      );
       return;
     }
     if (ctx.newOverhaulEndDate.value && ctx.newOverhaulEndDate.value < ctx.newOverhaulDate.value) {
-      ctx.notice.value = '完了予定日は開始予定日以降にしてください。';
+      setError(overhaulError, '完了予定日は開始予定日以降にしてください。');
       return;
     }
-    const person =
-      ctx.staff.value.find((x) => x.shopId === b.shopId && x.name === b.receptionist) ??
-      ctx.staff.value.find((x) => x.shopId === b.shopId);
-    if (!person) {
-      ctx.notice.value = '受付担当者を確認してください。';
-      return;
-    }
+    const person = receptionistFor(b, overhaulError);
+    if (!person) return;
     if (ctx.useMockData) {
       const item: Work = {
-        id: Math.max(0, ...ctx.overhauls.value.map((x) => x.id)) + 1,
+        id: nextId(ctx.overhauls.value),
         bikeId: b.id,
         date: dateSlash(ctx.newOverhaulDate.value),
         endDate: ctx.newOverhaulEndDate.value ? dateSlash(ctx.newOverhaulEndDate.value) : undefined,
@@ -140,34 +168,38 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
     if (ok) {
       ctx.showOverhaulModal.value = false;
       ctx.newOverhaulIsAdHoc.value = false;
+    } else {
+      overhaulError.value = ctx.notice.value;
     }
   }
 
   async function addMaintenance() {
+    maintenanceError.value = '';
     if (ctx.bikeLabel(ctx.newWorkBike.value) !== ctx.maintenanceBikeSearch.value) {
-      ctx.notice.value = '顧客・自転車は候補から選択してください。';
+      setError(maintenanceError, '顧客・自転車は候補から選択してください。');
       return;
     }
     const b = ctx.bikes.value.find((x) => x.id === ctx.newWorkBike.value);
-    if (!b) return;
+    if (!b) {
+      setError(maintenanceError, '登録対象の自転車を選択してください。');
+      return;
+    }
     if (ctx.scheduleRemaining(b, 'maintenance') <= 0) {
-      ctx.notice.value = `${b.maker} ${b.model} のメンテナンスは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`;
+      setError(
+        maintenanceError,
+        `${b.maker} ${b.model} のメンテナンスは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`
+      );
       return;
     }
     if (ctx.newWorkEndDate.value && ctx.newWorkEndDate.value < ctx.newWorkDate.value) {
-      ctx.notice.value = '完了予定日は開始予定日以降にしてください。';
+      setError(maintenanceError, '完了予定日は開始予定日以降にしてください。');
       return;
     }
-    const person =
-      ctx.staff.value.find((x) => x.shopId === b.shopId && x.name === b.receptionist) ??
-      ctx.staff.value.find((x) => x.shopId === b.shopId);
-    if (!person) {
-      ctx.notice.value = '受付担当者を確認してください。';
-      return;
-    }
+    const person = receptionistFor(b, maintenanceError);
+    if (!person) return;
     if (ctx.useMockData) {
       ctx.maintenance.value.unshift({
-        id: Math.max(0, ...ctx.maintenance.value.map((x) => x.id)) + 1,
+        id: nextId(ctx.maintenance.value),
         bikeId: b.id,
         date: dateSlash(ctx.newWorkDate.value),
         endDate: ctx.newWorkEndDate.value ? dateSlash(ctx.newWorkEndDate.value) : undefined,
@@ -200,40 +232,41 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
     if (ok) {
       ctx.showMaintenanceModal.value = false;
       ctx.newWorkIsAdHoc.value = false;
+    } else {
+      maintenanceError.value = ctx.notice.value;
     }
   }
 
   async function addEvent() {
+    eventError.value = '';
     if (ctx.bikeLabel(ctx.newEventBike.value) !== ctx.eventBikeSearch.value) {
-      ctx.notice.value = '顧客・自転車は候補から選択してください。';
+      setError(eventError, '顧客・自転車は候補から選択してください。');
       return;
     }
     const b = ctx.bikes.value.find((x) => x.id === ctx.newEventBike.value);
     if (!b || !ctx.newEventName.value.trim()) {
-      ctx.notice.value = 'イベント名を入力してください。';
+      setError(eventError, 'イベント名を入力してください。');
       return;
     }
     if (ctx.scheduleRemaining(b, 'inspection') <= 0) {
-      ctx.notice.value = `${b.maker} ${b.model} の点検サポートは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`;
+      setError(
+        eventError,
+        `${b.maker} ${b.model} の点検サポートは、契約上限回数に達しています。既存の予定または実施履歴を確認してください。`
+      );
       return;
     }
     if (
       ctx.newInspectionEndDate.value &&
       ctx.newInspectionEndDate.value < ctx.newInspectionDate.value
     ) {
-      ctx.notice.value = '点検完了予定日は開始予定日以降にしてください。';
+      setError(eventError, '点検完了予定日は開始予定日以降にしてください。');
       return;
     }
-    const person =
-      ctx.staff.value.find((x) => x.shopId === b.shopId && x.name === b.receptionist) ??
-      ctx.staff.value.find((x) => x.shopId === b.shopId);
-    if (!person) {
-      ctx.notice.value = '受付担当者を確認してください。';
-      return;
-    }
+    const person = receptionistFor(b, eventError);
+    if (!person) return;
     if (ctx.useMockData) {
       ctx.eventChecks.value.unshift({
-        id: Math.max(0, ...ctx.eventChecks.value.map((x) => x.id)) + 1,
+        id: nextId(ctx.eventChecks.value),
         bikeId: b.id,
         name: ctx.newEventName.value,
         eventDate: dateSlash(ctx.newEventDate.value),
@@ -272,6 +305,8 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
       ctx.newEventName.value = '';
       ctx.showEventModal.value = false;
       ctx.newEventIsAdHoc.value = false;
+    } else {
+      eventError.value = ctx.notice.value;
     }
   }
 
@@ -279,6 +314,9 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
     overhaulScheduleCapacity,
     maintenanceScheduleCapacity,
     eventScheduleCapacity,
+    overhaulError,
+    maintenanceError,
+    eventError,
     addOverhaul,
     addMaintenance,
     addEvent,
