@@ -115,6 +115,8 @@ az webapp config appsettings set --resource-group "<resource-group>" --name "<ap
 
 DBマイグレーション適用後、管理者権限のAccess Tokenを使い、顧客レコードとExternal IDの `tid`（Tenant ID）・`oid`（Object ID）を `/api/customers/{id}/identity` のPUTで紐付けます。メールアドレスは変更可能なため、本人識別キーとして使用しません。1つのExternal IDは1顧客にのみ紐付けられます。未紐付け顧客はサインインできても `/api/me` が403を返します。
 
+スタッフは顧客詳細から一時アクセスQRを発行できます。QRコードは10分で失効し1回のみ引換可能で、読み取り後のセッションは30分で失効します。一時セッションは該当顧客の閲覧権限のみを持ちます。追加した `AddQrAccess` マイグレーションを本番DBへ適用してください。
+
 ### App Service の作成（まだ作成していない場合）
 
 Azure CLI でログインし、リソースグループ・Linux App Service プラン・Web App を作成します。リージョンは既存 Static Web Apps の配置先に近い場所を選んでください。`<...>` は実際の値に置き換えます。
@@ -212,6 +214,8 @@ CORS は App Service の `Cors__AllowedOrigins__0` に Static Web Apps の Origi
 | GET / PUT / DELETE | `/api/customers/{id}` | 顧客詳細・更新・削除 |
 | PUT | `/api/customers/{id}/identity` | StaffAdminによるEntra顧客ID紐付け |
 | GET | `/api/me` | 認証済みユーザー情報 |
+| POST | `/api/qr-access/grants` | Staffによる顧客一時アクセスQR発行（10分有効・1回限り） |
+| POST | `/api/qr-access/redeem` | QR引換（閲覧専用セッション30分） |
 | GET / POST | `/api/bikes` | 自転車一覧・登録 |
 | GET / PUT / DELETE | `/api/bikes/{id}` | 自転車詳細・更新・削除 |
 | GET / POST | `/api/shops` | 店舗一覧・登録 |

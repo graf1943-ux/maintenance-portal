@@ -52,6 +52,11 @@ builder.Services.AddAuthentication(options =>
         options.ForwardDefaultSelector = context =>
         {
             var authorization = context.Request.Headers.Authorization.ToString();
+            if (authorization.StartsWith("Bearer qrs_", StringComparison.Ordinal))
+            {
+                return "QrSession";
+            }
+
             if (!authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             {
                 return customerScheme;
@@ -70,7 +75,8 @@ builder.Services.AddAuthentication(options =>
         };
     })
     .AddJwtBearer(staffScheme, options => ConfigureBearer(options, staffAuthority, staffIssuer, staffAudience))
-    .AddJwtBearer(customerScheme, options => ConfigureBearer(options, customerAuthority, customerIssuer, customerAudience, isCustomer: true));
+    .AddJwtBearer(customerScheme, options => ConfigureBearer(options, customerAuthority, customerIssuer, customerAudience, isCustomer: true))
+    .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, QrSessionAuthenticationHandler>("QrSession", _ => { });
 
 builder.Services.AddAuthorization(options =>
 {

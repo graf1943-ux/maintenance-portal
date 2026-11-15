@@ -22,6 +22,32 @@ namespace RoadbikeCare.Api.Data.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("RoadbikeCare.Api.Models.QrAccessGrant", b =>
+                {
+                    b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+                    b.Property<int>("CustomerId").HasColumnType("int");
+                    b.Property<DateTime>("ExpiresAtUtc").HasColumnType("datetime2");
+                    b.Property<DateTime?>("RedeemedAtUtc").HasColumnType("datetime2");
+                    b.Property<string>("TokenHash").IsRequired().HasMaxLength(128).HasColumnType("nvarchar(128)");
+                    b.HasKey("Id");
+                    b.HasIndex("ExpiresAtUtc");
+                    b.HasIndex("TokenHash").IsUnique();
+                    b.ToTable("QrAccessGrants");
+                });
+            modelBuilder.Entity("RoadbikeCare.Api.Models.QrAccessSession", b =>
+                {
+                    b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+                    b.Property<int>("CustomerId").HasColumnType("int");
+                    b.Property<DateTime>("ExpiresAtUtc").HasColumnType("datetime2");
+                    b.Property<string>("TokenHash").IsRequired().HasMaxLength(128).HasColumnType("nvarchar(128)");
+                    b.HasKey("Id");
+                    b.HasIndex("ExpiresAtUtc");
+                    b.HasIndex("TokenHash").IsUnique();
+                    b.ToTable("QrAccessSessions");
+                });
+
             modelBuilder.Entity("RoadbikeCare.Api.Models.Bike", b =>
                 {
                     b.Property<int>("Id")

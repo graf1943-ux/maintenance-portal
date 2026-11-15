@@ -104,6 +104,7 @@ if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed.' }
 
 Write-Host '2/4 Creating the ZIP package...' -ForegroundColor Cyan
 if (Test-Path $packagePath) { Remove-Item $packagePath -Force }
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zipStream = [System.IO.File]::Open(
     $packagePath,

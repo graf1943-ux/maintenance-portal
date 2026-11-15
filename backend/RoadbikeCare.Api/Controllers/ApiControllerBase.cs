@@ -13,6 +13,11 @@ public abstract class ApiControllerBase : ControllerBase
 
     protected async Task<int?> CurrentCustomerIdAsync(RoadbikeCareDbContext db, CancellationToken cancellationToken)
     {
+        if (int.TryParse(User.FindFirst("customer_id")?.Value, out var qrCustomerId))
+        {
+            return qrCustomerId;
+        }
+
         var tenantId = User.FindFirst("tid")?.Value;
         var objectId = User.FindFirst("oid")?.Value;
         if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId))

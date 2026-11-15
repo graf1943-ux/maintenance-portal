@@ -14,6 +14,11 @@ public sealed class CurrentUserController(RoadbikeCareDbContext db) : ApiControl
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
     {
+        if (int.TryParse(User.FindFirst("customer_id")?.Value, out var qrCustomerId))
+        {
+            Customer? qrCustomer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == qrCustomerId, cancellationToken);
+            return qrCustomer is null ? Forbid() : Ok(new { role = "customer", customerId = qrCustomer.Id, name = qrCustomer.Name, email = qrCustomer.Email, temporaryAccess = true });
+        }
         if (IsStaff)
         {
             return Ok(new

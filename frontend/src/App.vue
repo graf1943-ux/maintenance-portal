@@ -547,7 +547,7 @@
     :error="authError"
     :customer-enabled="customerAuthEnabled"
     :staff-enabled="staffAuthEnabled"
-    :authenticated="Boolean(authState.account)"
+    :authenticated="Boolean(authState.role)"
     @sign-in="handleSignIn"
     @sign-out="handleSignOut"
   />
@@ -777,6 +777,7 @@
       :identity-error="customerIdentityError"
       :identity-message="customerIdentityMessage"
       :identity-saving="customerIdentitySaving"
+      :can-issue-qr="portalProfile?.role === 'staff' && !USE_MOCK_DATA"
       @update:identity-tenant-id="customerIdentityTenantId = $event"
       @update:identity-object-id="customerIdentityObjectId = $event"
       @close="

@@ -24,6 +24,8 @@ type IdentitySettings = {
 };
 
 const sessionKey = 'roadbike-care-auth-role';
+const qrSessionKey = 'roadbike-care-qr-session';
+let qrAccessToken: string | null = null;
 const settings: Record<PortalRole, IdentitySettings> = {
   customer: {
     clientId: import.meta.env.VITE_ENTRA_CUSTOMER_CLIENT_ID ?? '',
@@ -74,6 +76,31 @@ async function getApplication(role: PortalRole): Promise<PublicClientApplication
 }
 
 export async function restoreAuthentication(): Promise<boolean> {
+  const qrCode = new URL(window.location.href).searchParams.get('qr');
+  if (qrCode) {
+    const response = await fetch(
+      `${import.meta.env.VITE_API_BASE_URL ?? '/api'}/qr-access/redeem`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: qrCode }),
+      }
+    );
+    const body = await response.json();
+    window.history.replaceState({}, '', window.location.pathname);
+    if (!response.ok) throw new Error(body.message ?? 'QRコードを確認できませんでした。');
+    qrAccessToken = body.accessToken;
+    sessionStorage.setItem(qrSessionKey, qrAccessToken!);
+    authState.role = 'customer';
+    authState.account = null;
+    return true;
+  }
+  const savedQrSession = sessionStorage.getItem(qrSessionKey);
+  if (savedQrSession) {
+    qrAccessToken = savedQrSession;
+    authState.role = 'customer';
+    return true;
+  }
   const role = sessionStorage.getItem(sessionKey);
   if (role !== 'customer' && role !== 'staff') return false;
   if (!isAuthConfigured(role)) {
@@ -115,6 +142,7 @@ export async function signIn(role: PortalRole): Promise<void> {
 }
 
 export async function getAccessToken(): Promise<string> {
+  if (qrAccessToken) return qrAccessToken;
   const role = authState.role;
   const account = authState.account;
   if (!role || !account) throw new Error('サインインしてください。');
@@ -136,7 +164,20 @@ export async function getAccessToken(): Promise<string> {
 export async function signOut(): Promise<void> {
   const role = authState.role;
   const account = authState.account;
+  const qrToken = qrAccessToken;
+  if (qrToken) {
+    try {
+      await fetch(`${import.meta.env.VITE_API_BASE_URL ?? '/api'}/qr-access/session`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${qrToken}` },
+      });
+    } catch {
+      // Local sign-out still clears the session if the API is unavailable.
+    }
+  }
   sessionStorage.removeItem(sessionKey);
+  sessionStorage.removeItem(qrSessionKey);
+  qrAccessToken = null;
   authState.role = null;
   authState.account = null;
   if (!role || !account) return;

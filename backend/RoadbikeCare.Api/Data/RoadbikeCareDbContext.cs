@@ -6,6 +6,8 @@ namespace RoadbikeCare.Api.Data;
 public sealed class RoadbikeCareDbContext(DbContextOptions<RoadbikeCareDbContext> options) : DbContext(options)
 {
     public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<QrAccessGrant> QrAccessGrants => Set<QrAccessGrant>();
+    public DbSet<QrAccessSession> QrAccessSessions => Set<QrAccessSession>();
     public DbSet<Bike> Bikes => Set<Bike>();
     public DbSet<BikeComponent> BikeComponents => Set<BikeComponent>();
     public DbSet<Shop> Shops => Set<Shop>();
@@ -19,6 +21,15 @@ public sealed class RoadbikeCareDbContext(DbContextOptions<RoadbikeCareDbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Customer>().HasKey(x => x.Id);
+        modelBuilder.Entity<QrAccessGrant>().HasKey(x => x.Id);
+        modelBuilder.Entity<QrAccessGrant>().Property(x => x.TokenHash).HasMaxLength(128);
+        modelBuilder.Entity<QrAccessGrant>().Property(x => x.RedeemedAtUtc).IsConcurrencyToken();
+        modelBuilder.Entity<QrAccessGrant>().HasIndex(x => x.TokenHash).IsUnique();
+        modelBuilder.Entity<QrAccessGrant>().HasIndex(x => x.ExpiresAtUtc);
+        modelBuilder.Entity<QrAccessSession>().HasKey(x => x.Id);
+        modelBuilder.Entity<QrAccessSession>().Property(x => x.TokenHash).HasMaxLength(128);
+        modelBuilder.Entity<QrAccessSession>().HasIndex(x => x.TokenHash).IsUnique();
+        modelBuilder.Entity<QrAccessSession>().HasIndex(x => x.ExpiresAtUtc);
         modelBuilder.Entity<Bike>().HasKey(x => x.Id);
         modelBuilder.Entity<BikeComponent>().HasKey(x => x.Id);
         modelBuilder.Entity<Shop>().HasKey(x => x.Id);

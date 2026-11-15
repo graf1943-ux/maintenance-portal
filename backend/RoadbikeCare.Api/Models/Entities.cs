@@ -7,6 +7,21 @@ public sealed record Customer(int Id, string Name, string Email, string Phone = 
     [JsonIgnore] public string? EntraTenantId { get; init; }
     [JsonIgnore] public string? EntraObjectId { get; init; }
 }
+public sealed class QrAccessGrant
+{
+    public int Id { get; set; }
+    public required string TokenHash { get; set; }
+    public int CustomerId { get; set; }
+    public DateTime ExpiresAtUtc { get; set; }
+    public DateTime? RedeemedAtUtc { get; set; }
+}
+public sealed class QrAccessSession
+{
+    public int Id { get; set; }
+    public required string TokenHash { get; set; }
+    public int CustomerId { get; set; }
+    public DateTime ExpiresAtUtc { get; set; }
+}
 public sealed record Bike(int Id, int CustomerId, string Maker, string Model, int Year, string Serial,
     int? ActiveContractId = null, DateOnly? PurchaseDate = null)
 {

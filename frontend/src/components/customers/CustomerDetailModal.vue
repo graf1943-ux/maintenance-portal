@@ -1,4 +1,7 @@
 <script setup lang="ts">
+  import { ref } from 'vue';
+  import QRCode from 'qrcode';
+  import { apiPost } from '../../api';
   import type { Bike, Plan } from '../../types';
   import type { CustomerProfileForm } from '../../composables/useCustomerProfileEditor';
   import type { CustomerWorkRow } from '../../composables/useCustomerDetails';
@@ -11,7 +14,7 @@
     scheduleRemaining: { overhaul: number; maintenance: number; inspection: number };
   };
 
-  defineProps<{
+  const props = defineProps<{
     customerId: number | null;
     customerName: string;
     customerEmail: string;
@@ -28,7 +31,33 @@
     identityError: string;
     identityMessage: string;
     identitySaving: boolean;
+    canIssueQr: boolean;
   }>();
+  const qrImage = ref('');
+  const qrExpires = ref('');
+  const qrError = ref('');
+  const qrLoading = ref(false);
+  async function issueQr() {
+    if (!props.customerId) return;
+    qrLoading.value = true;
+    qrError.value = '';
+    qrImage.value = '';
+    try {
+      const grant = await apiPost<{ code: string; expiresAtUtc: string }>('/qr-access/grants', {
+        customerId: props.customerId,
+      });
+      const link = `${window.location.origin}${window.location.pathname}?qr=${encodeURIComponent(grant.code)}`;
+      qrImage.value = await QRCode.toDataURL(link, { width: 240, margin: 2 });
+      qrExpires.value = new Date(grant.expiresAtUtc).toLocaleTimeString('ja-JP', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch (error) {
+      qrError.value = error instanceof Error ? error.message : 'QRコードを発行できませんでした。';
+    } finally {
+      qrLoading.value = false;
+    }
+  }
 
   const profile = defineModel<CustomerProfileForm>('customer-profile', { required: true });
 
@@ -107,6 +136,14 @@
           {{ customerProfileMessage }}
         </p>
         <button class="outline small" @click="$emit('edit-customer')">顧客情報を編集</button>
+        <button v-if="canIssueQr" class="outline small" :disabled="qrLoading" @click="issueQr">
+          {{ qrLoading ? '発行中…' : '一時アクセスQRを発行' }}
+        </button>
+      </div>
+      <div v-if="qrImage || qrError" class="customer-profile-edit-actions qr-access-result">
+        <img v-if="qrImage" :src="qrImage" alt="顧客一時アクセス用QRコード" />
+        <p v-if="qrImage">有効期限 {{ qrExpires }} まで。読み取り後30分、閲覧のみ利用できます。</p>
+        <p v-if="qrError" class="customer-identity-feedback error">{{ qrError }}</p>
       </div>
       <section v-if="showIdentityLink" class="customer-profile-section customer-identity-section">
         <div class="panel-head">
