@@ -22,24 +22,33 @@
         <span class="brand-mark">R</span>
         <span>ROAD BIKE CARE</span>
       </div>
-      <p class="eyebrow">MAINTENANCE PORTAL</p>
-      <h1 id="auth-title">サインイン</h1>
+      <p class="eyebrow">メンテナンスポータル</p>
+      <h1 id="auth-title">ログイン</h1>
+      <p class="auth-intro">ご利用のアカウントを選択してください。</p>
       <div class="auth-options">
         <button
           class="auth-option customer"
           :disabled="loading || !customerEnabled"
           @click="$emit('signIn', 'customer')"
         >
-          <span>顧客アカウント</span>
-          <span class="auth-arrow" aria-hidden="true">→</span>
+          <span class="auth-option-icon" aria-hidden="true">人</span>
+          <span class="auth-option-copy">
+            <strong>お客様</strong>
+            <small>ご予約や自転車の情報を確認</small>
+          </span>
+          <span class="auth-arrow" aria-hidden="true">›</span>
         </button>
         <button
           class="auth-option staff"
           :disabled="loading || !staffEnabled"
           @click="$emit('signIn', 'staff')"
         >
-          <span>店舗スタッフ</span>
-          <span class="auth-arrow" aria-hidden="true">→</span>
+          <span class="auth-option-icon" aria-hidden="true">店</span>
+          <span class="auth-option-copy">
+            <strong>店舗スタッフ</strong>
+            <small>店舗の業務管理はこちら</small>
+          </span>
+          <span class="auth-arrow" aria-hidden="true">›</span>
         </button>
       </div>
       <p v-if="!customerEnabled && !staffEnabled" class="auth-feedback error">
