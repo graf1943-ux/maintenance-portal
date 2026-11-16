@@ -8,6 +8,7 @@ public sealed class RoadbikeCareDbContext(DbContextOptions<RoadbikeCareDbContext
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<QrAccessGrant> QrAccessGrants => Set<QrAccessGrant>();
     public DbSet<QrAccessSession> QrAccessSessions => Set<QrAccessSession>();
+    public DbSet<CustomerContact> CustomerContacts => Set<CustomerContact>();
     public DbSet<Bike> Bikes => Set<Bike>();
     public DbSet<BikeComponent> BikeComponents => Set<BikeComponent>();
     public DbSet<Shop> Shops => Set<Shop>();
@@ -30,6 +31,13 @@ public sealed class RoadbikeCareDbContext(DbContextOptions<RoadbikeCareDbContext
         modelBuilder.Entity<QrAccessSession>().Property(x => x.TokenHash).HasMaxLength(128);
         modelBuilder.Entity<QrAccessSession>().HasIndex(x => x.TokenHash).IsUnique();
         modelBuilder.Entity<QrAccessSession>().HasIndex(x => x.ExpiresAtUtc);
+        modelBuilder.Entity<CustomerContact>().HasKey(x => x.Id);
+        modelBuilder.Entity<CustomerContact>().Property(x => x.Channel).HasMaxLength(20);
+        modelBuilder.Entity<CustomerContact>().Property(x => x.Summary).HasMaxLength(1000);
+        modelBuilder.Entity<CustomerContact>().Property(x => x.CreatedBy).HasMaxLength(256);
+        modelBuilder.Entity<CustomerContact>().Property(x => x.FollowUpStatus).HasMaxLength(20);
+        modelBuilder.Entity<CustomerContact>().Property(x => x.FollowUpResult).HasMaxLength(1000);
+        modelBuilder.Entity<CustomerContact>().HasIndex(x => new { x.CustomerId, x.ContactedAtUtc });
         modelBuilder.Entity<Bike>().HasKey(x => x.Id);
         modelBuilder.Entity<BikeComponent>().HasKey(x => x.Id);
         modelBuilder.Entity<Shop>().HasKey(x => x.Id);
@@ -58,6 +66,10 @@ public sealed class RoadbikeCareDbContext(DbContextOptions<RoadbikeCareDbContext
             .IsUnique()
             .HasFilter("[EntraTenantId] IS NOT NULL AND [EntraObjectId] IS NOT NULL");
 
+        modelBuilder.Entity<CustomerContact>().HasOne(x => x.CustomerNavigation).WithMany()
+            .HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<CustomerContact>().HasOne(x => x.FollowUpStaffNavigation).WithMany()
+            .HasForeignKey(x => x.FollowUpStaffId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<Bike>().HasOne(x => x.CustomerNavigation).WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<Bike>().HasOne(x => x.ActiveContractNavigation).WithMany().HasForeignKey(x => x.ActiveContractId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<BikeComponent>().HasOne(x => x.BikeNavigation).WithMany().HasForeignKey(x => x.BikeId).OnDelete(DeleteBehavior.Restrict);

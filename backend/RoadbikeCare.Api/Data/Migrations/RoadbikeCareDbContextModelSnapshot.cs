@@ -22,32 +22,6 @@ namespace RoadbikeCare.Api.Data.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("RoadbikeCare.Api.Models.QrAccessGrant", b =>
-                {
-                    b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-                    b.Property<int>("CustomerId").HasColumnType("int");
-                    b.Property<DateTime>("ExpiresAtUtc").HasColumnType("datetime2");
-                    b.Property<DateTime?>("RedeemedAtUtc").HasColumnType("datetime2");
-                    b.Property<string>("TokenHash").IsRequired().HasMaxLength(128).HasColumnType("nvarchar(128)");
-                    b.HasKey("Id");
-                    b.HasIndex("ExpiresAtUtc");
-                    b.HasIndex("TokenHash").IsUnique();
-                    b.ToTable("QrAccessGrants");
-                });
-            modelBuilder.Entity("RoadbikeCare.Api.Models.QrAccessSession", b =>
-                {
-                    b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-                    b.Property<int>("CustomerId").HasColumnType("int");
-                    b.Property<DateTime>("ExpiresAtUtc").HasColumnType("datetime2");
-                    b.Property<string>("TokenHash").IsRequired().HasMaxLength(128).HasColumnType("nvarchar(128)");
-                    b.HasKey("Id");
-                    b.HasIndex("ExpiresAtUtc");
-                    b.HasIndex("TokenHash").IsUnique();
-                    b.ToTable("QrAccessSessions");
-                });
-
             modelBuilder.Entity("RoadbikeCare.Api.Models.Bike", b =>
                 {
                     b.Property<int>("Id")
@@ -226,6 +200,59 @@ namespace RoadbikeCare.Api.Data.Migrations
                     b.ToTable("Customers");
                 });
 
+            modelBuilder.Entity("RoadbikeCare.Api.Models.CustomerContact", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTimeOffset>("ContactedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("int");
+
+                    b.Property<DateOnly?>("FollowUpDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("FollowUpResult")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<int?>("FollowUpStaffId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("FollowUpStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FollowUpStaffId");
+
+                    b.HasIndex("CustomerId", "ContactedAtUtc");
+
+                    b.ToTable("CustomerContacts");
+                });
+
             modelBuilder.Entity("RoadbikeCare.Api.Models.EventCheck", b =>
                 {
                     b.Property<int>("Id")
@@ -239,6 +266,9 @@ namespace RoadbikeCare.Api.Data.Migrations
 
                     b.Property<DateOnly?>("CompletedDate")
                         .HasColumnType("date");
+
+                    b.Property<int?>("EstimatedWorkMinutes")
+                        .HasColumnType("int");
 
                     b.Property<DateOnly>("EventDate")
                         .HasColumnType("date");
@@ -262,6 +292,9 @@ namespace RoadbikeCare.Api.Data.Migrations
 
                     b.Property<int>("ReceptionistId")
                         .HasColumnType("int");
+
+                    b.Property<string>("ScheduleSlotsJson")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("ShopId")
                         .HasColumnType("int");
@@ -309,6 +342,68 @@ namespace RoadbikeCare.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("Plans");
+                });
+
+            modelBuilder.Entity("RoadbikeCare.Api.Models.QrAccessGrant", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("RedeemedAtUtc")
+                        .IsConcurrencyToken()
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAtUtc");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.ToTable("QrAccessGrants");
+                });
+
+            modelBuilder.Entity("RoadbikeCare.Api.Models.QrAccessSession", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAtUtc");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.ToTable("QrAccessSessions");
                 });
 
             modelBuilder.Entity("RoadbikeCare.Api.Models.Shop", b =>
@@ -428,6 +523,9 @@ namespace RoadbikeCare.Api.Data.Migrations
                     b.Property<DateOnly?>("EndDate")
                         .HasColumnType("date");
 
+                    b.Property<int?>("EstimatedWorkMinutes")
+                        .HasColumnType("int");
+
                     b.Property<bool>("IsAdHoc")
                         .HasColumnType("bit");
 
@@ -440,6 +538,9 @@ namespace RoadbikeCare.Api.Data.Migrations
 
                     b.Property<int>("ReceptionistId")
                         .HasColumnType("int");
+
+                    b.Property<string>("ScheduleSlotsJson")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("ShopId")
                         .HasColumnType("int");
@@ -528,6 +629,24 @@ namespace RoadbikeCare.Api.Data.Migrations
                     b.Navigation("ReceptionistNavigation");
 
                     b.Navigation("ShopNavigation");
+                });
+
+            modelBuilder.Entity("RoadbikeCare.Api.Models.CustomerContact", b =>
+                {
+                    b.HasOne("RoadbikeCare.Api.Models.Customer", "CustomerNavigation")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RoadbikeCare.Api.Models.StaffMember", "FollowUpStaffNavigation")
+                        .WithMany()
+                        .HasForeignKey("FollowUpStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CustomerNavigation");
+
+                    b.Navigation("FollowUpStaffNavigation");
                 });
 
             modelBuilder.Entity("RoadbikeCare.Api.Models.EventCheck", b =>

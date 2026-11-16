@@ -1,10 +1,17 @@
 <script setup lang="ts">
+  import type { ScheduleTimeSlot } from '../../types';
+  import ScheduleTimeFields from '../work/ScheduleTimeFields.vue';
+
   const bikeSearch = defineModel<string>('bikeSearch', { required: true });
   const startDate = defineModel<string>('startDate', { required: true });
   const endDate = defineModel<string>('endDate', { required: true });
   const isAdHoc = defineModel<boolean>('isAdHoc', { required: true });
   const title = defineModel<string>('title', { required: true });
   const detail = defineModel<string>('detail', { required: true });
+  const estimatedWorkMinutes = defineModel<number | null>('estimatedWorkMinutes', {
+    required: true,
+  });
+  const scheduleSlots = defineModel<ScheduleTimeSlot[]>('scheduleSlots', { required: true });
 
   defineProps<{
     bikeSelected: boolean;
@@ -51,6 +58,12 @@
         <div><label>計画名</label><input v-model="title" /></div>
         <div><label>作業内容</label><input v-model="detail" /></div>
       </div>
+      <ScheduleTimeFields
+        v-model:estimated-work-minutes="estimatedWorkMinutes"
+        v-model:schedule-slots="scheduleSlots"
+        :start-date="startDate"
+        :end-date="endDate"
+      />
       <label class="checkbox-label">
         <input v-model="isAdHoc" type="checkbox" />
         予約なしの突発作業として受付（受付と同時に作業開始）

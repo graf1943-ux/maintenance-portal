@@ -1,11 +1,12 @@
 import { ref, watch, type ComputedRef, type Ref } from 'vue';
 import { apiPost } from '../api';
-import type { Bike, EventCheck, Work } from '../types';
+import type { Bike, EventCheck, ScheduleTimeSlot, Work } from '../types';
 import { dateSlash } from '../services/apiMappers';
 import { isOverhaulSeason } from '../services/contractRules';
 import type { ContractService, ScheduleCapacity } from './useContractUsage';
 import { findReceptionist } from '../utils/staff';
 import { nextId } from '../utils/id';
+import { validateScheduleTimePlan } from '../utils/scheduleTime';
 
 type StaffMember = { id: number; shopId: number; name: string; role: string };
 type ApiAction = (action: () => Promise<unknown>, success: string) => Promise<boolean>;
@@ -21,6 +22,8 @@ interface ScheduleRegistrationContext {
   newOverhaulReceptionDate: Ref<string>;
   newOverhaulDate: Ref<string>;
   newOverhaulEndDate: Ref<string>;
+  newOverhaulEstimatedWorkMinutes: Ref<number | null>;
+  newOverhaulScheduleSlots: Ref<ScheduleTimeSlot[]>;
   newOverhaulIsAdHoc: Ref<boolean>;
   newOverhaulTitle: Ref<string>;
   newOverhaulDetail: Ref<string>;
@@ -28,6 +31,8 @@ interface ScheduleRegistrationContext {
   maintenanceBikeSearch: Ref<string>;
   newWorkDate: Ref<string>;
   newWorkEndDate: Ref<string>;
+  newWorkEstimatedWorkMinutes: Ref<number | null>;
+  newWorkScheduleSlots: Ref<ScheduleTimeSlot[]>;
   newWorkIsAdHoc: Ref<boolean>;
   newWorkTitle: Ref<string>;
   newWorkDetail: Ref<string>;
@@ -37,6 +42,8 @@ interface ScheduleRegistrationContext {
   newEventDate: Ref<string>;
   newInspectionDate: Ref<string>;
   newInspectionEndDate: Ref<string>;
+  newEventEstimatedWorkMinutes: Ref<number | null>;
+  newEventScheduleSlots: Ref<ScheduleTimeSlot[]>;
   newEventIsAdHoc: Ref<boolean>;
   notice: Ref<string>;
   showOverhaulModal: Ref<boolean>;
@@ -77,7 +84,12 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
   }
 
   function receptionistFor(bike: Bike, error: Ref<string>) {
-    const receptionist = findReceptionist(ctx.staff.value, bike.shopId, bike.receptionist);
+    const receptionist = findReceptionist(
+      ctx.staff.value,
+      bike.shopId,
+      bike.receptionist,
+      bike.receptionistId
+    );
     if (!receptionist) setError(error, '受付担当者を確認してください。');
     return receptionist;
   }
@@ -128,6 +140,16 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
       setError(overhaulError, '完了予定日は開始予定日以降にしてください。');
       return;
     }
+    const timeError = validateScheduleTimePlan(
+      ctx.newOverhaulDate.value,
+      ctx.newOverhaulEndDate.value,
+      ctx.newOverhaulEstimatedWorkMinutes.value,
+      ctx.newOverhaulScheduleSlots.value
+    );
+    if (timeError) {
+      setError(overhaulError, timeError);
+      return;
+    }
     const person = receptionistFor(b, overhaulError);
     if (!person) return;
     if (ctx.useMockData) {
@@ -141,7 +163,10 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
         detail: ctx.newOverhaulDetail.value,
         shopId: b.shopId,
         receptionist: person.name,
+        receptionistId: person.id,
         isAdHoc: ctx.newOverhaulIsAdHoc.value,
+        estimatedWorkMinutes: ctx.newOverhaulEstimatedWorkMinutes.value,
+        scheduleSlots: ctx.newOverhaulScheduleSlots.value,
       };
       ctx.overhauls.value.unshift(item);
       ctx.showOverhaulModal.value = false;
@@ -162,6 +187,8 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
           shopId: b.shopId,
           receptionistId: person.id,
           isAdHoc: ctx.newOverhaulIsAdHoc.value,
+          estimatedWorkMinutes: ctx.newOverhaulEstimatedWorkMinutes.value,
+          scheduleSlots: ctx.newOverhaulScheduleSlots.value,
         }),
       'オーバーホール予定を登録しました。実施完了までは契約回数を消費しません。'
     );
@@ -195,6 +222,16 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
       setError(maintenanceError, '完了予定日は開始予定日以降にしてください。');
       return;
     }
+    const timeError = validateScheduleTimePlan(
+      ctx.newWorkDate.value,
+      ctx.newWorkEndDate.value,
+      ctx.newWorkEstimatedWorkMinutes.value,
+      ctx.newWorkScheduleSlots.value
+    );
+    if (timeError) {
+      setError(maintenanceError, timeError);
+      return;
+    }
     const person = receptionistFor(b, maintenanceError);
     if (!person) return;
     if (ctx.useMockData) {
@@ -208,7 +245,10 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
         detail: ctx.newWorkDetail.value,
         shopId: b.shopId,
         receptionist: person.name,
+        receptionistId: person.id,
         isAdHoc: ctx.newWorkIsAdHoc.value,
+        estimatedWorkMinutes: ctx.newWorkEstimatedWorkMinutes.value,
+        scheduleSlots: ctx.newWorkScheduleSlots.value,
       });
       ctx.showMaintenanceModal.value = false;
       ctx.newWorkIsAdHoc.value = false;
@@ -226,6 +266,8 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
           shopId: b.shopId,
           receptionistId: person.id,
           isAdHoc: ctx.newWorkIsAdHoc.value,
+          estimatedWorkMinutes: ctx.newWorkEstimatedWorkMinutes.value,
+          scheduleSlots: ctx.newWorkScheduleSlots.value,
         }),
       'メンテナンス計画を追加しました。実施完了までは回数を消費しません。'
     );
@@ -262,6 +304,16 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
       setError(eventError, '点検完了予定日は開始予定日以降にしてください。');
       return;
     }
+    const timeError = validateScheduleTimePlan(
+      ctx.newInspectionDate.value,
+      ctx.newInspectionEndDate.value,
+      ctx.newEventEstimatedWorkMinutes.value,
+      ctx.newEventScheduleSlots.value
+    );
+    if (timeError) {
+      setError(eventError, timeError);
+      return;
+    }
     const person = receptionistFor(b, eventError);
     if (!person) return;
     if (ctx.useMockData) {
@@ -278,7 +330,10 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
         memo: '目標イベントに向けた点検サポート',
         shopId: b.shopId,
         receptionist: person.name,
+        receptionistId: person.id,
         isAdHoc: ctx.newEventIsAdHoc.value,
+        estimatedWorkMinutes: ctx.newEventEstimatedWorkMinutes.value,
+        scheduleSlots: ctx.newEventScheduleSlots.value,
       });
       ctx.newEventName.value = '';
       ctx.showEventModal.value = false;
@@ -298,6 +353,8 @@ export function useScheduleRegistration(ctx: ScheduleRegistrationContext) {
           shopId: b.shopId,
           receptionistId: person.id,
           isAdHoc: ctx.newEventIsAdHoc.value,
+          estimatedWorkMinutes: ctx.newEventEstimatedWorkMinutes.value,
+          scheduleSlots: ctx.newEventScheduleSlots.value,
         }),
       '目標イベントと点検予定を登録しました。'
     );

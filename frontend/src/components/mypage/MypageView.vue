@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { Bike, Plan } from '../../types';
+  import type { Bike, History, Plan } from '../../types';
 
   type BikeCard = {
     bike: Bike;
@@ -17,11 +17,13 @@
     status: string;
     isAdHoc?: boolean;
   };
+  type HistoryRow = History & { bike?: Bike };
 
   defineProps<{
     customerName: string;
     bikeCards: BikeCard[];
     scheduleRows: ScheduleRow[];
+    historyRows: HistoryRow[];
     searchText: string;
     dateSortLabel: string;
     statusSortLabel: string;
@@ -30,6 +32,7 @@
   defineEmits<{
     'update:search-text': [value: string];
     sort: [column: 'date' | 'status'];
+    'open-report': [history: HistoryRow];
   }>();
 </script>
 
@@ -117,6 +120,52 @@
           </tr>
           <tr v-if="scheduleRows.length === 0">
             <td colspan="5" class="empty-state">メンテナンス・点検サポート予定はありません。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>作業履歴・報告書</h2>
+        <p>完了した作業の内容と、登録済みの点検結果・使用部品を確認できます。</p>
+      </div>
+      <span class="count">{{ historyRows.length }}件</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>作業完了日</th>
+            <th>対象自転車</th>
+            <th>作業区分</th>
+            <th>作業内容</th>
+            <th>報告書</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="history in historyRows" :key="history.id">
+            <td>{{ history.date }}</td>
+            <td>
+              <b v-if="history.bike">{{ history.bike.maker }} {{ history.bike.model }}</b>
+              <span v-else>—</span>
+            </td>
+            <td>{{ history.category }}</td>
+            <td>{{ history.title }}</td>
+            <td>
+              <button
+                v-if="history.report"
+                class="outline small"
+                @click="$emit('open-report', history)"
+              >
+                報告書を見る
+              </button>
+              <span v-else class="muted">報告書未登録</span>
+            </td>
+          </tr>
+          <tr v-if="historyRows.length === 0">
+            <td colspan="5" class="empty-state">完了した作業履歴はありません。</td>
           </tr>
         </tbody>
       </table>

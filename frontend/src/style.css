@@ -1348,6 +1348,53 @@ td b {
 .customer-profile-section .panel-head {
   margin-bottom: 10px;
 }
+.customer-contact-form {
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 0.7fr) minmax(220px, 2fr) minmax(150px, 1fr) minmax(130px, 1fr)
+    auto;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.customer-contact-form label {
+  display: grid;
+  gap: 5px;
+  color: #64748b;
+  font-size: 11px;
+}
+.customer-contact-form input,
+.customer-contact-form select,
+.customer-contact-form textarea,
+.customer-contact-result {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #d9e0e8;
+  border-radius: 6px;
+  background: #fff;
+  color: #243246;
+  font: inherit;
+}
+.customer-contact-form textarea {
+  resize: vertical;
+}
+.customer-contact-channel {
+  display: block;
+  color: #64748b;
+  font-size: 10px;
+}
+.customer-contact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.customer-contact-actions button {
+  white-space: nowrap;
+}
+.customer-contact-section td {
+  vertical-align: top;
+}
 .customer-identity-section {
   padding-top: 14px;
   border-top: 1px solid #e9edf3;
@@ -1451,6 +1498,9 @@ td b {
     grid-template-columns: 1fr;
   }
   .customer-identity-form {
+    grid-template-columns: 1fr;
+  }
+  .customer-contact-form {
     grid-template-columns: 1fr;
   }
   .customer-profile-bike .detail-grid {

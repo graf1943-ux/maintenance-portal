@@ -4,7 +4,9 @@
 
   type HistoryReport = History & { bike?: Bike };
 
-  const props = defineProps<{ history: HistoryReport }>();
+  const props = withDefaults(defineProps<{ history: HistoryReport; allowQuote?: boolean }>(), {
+    allowQuote: true,
+  });
 
   defineEmits<{ close: [] }>();
 
@@ -12,7 +14,9 @@
   const showQuote = ref(false);
   const hasQuotePrices = computed(() => {
     const parts = report.value?.parts;
-    return Boolean(parts?.length && parts.every((part) => part.unitPrice != null));
+    return Boolean(
+      props.allowQuote && parts?.length && parts.every((part) => part.unitPrice != null)
+    );
   });
   const quoteTotal = computed(() =>
     (report.value?.parts ?? []).reduce(

@@ -1,5 +1,5 @@
 import { computed, type Ref } from 'vue';
-import type { Bike, EventCheck, Plan, Work } from '../types';
+import type { Bike, EventCheck, History, Plan, Work } from '../types';
 import type { ContractService } from './useContractUsage';
 import { matches, type ListSorter } from '../utils/list';
 
@@ -10,6 +10,7 @@ interface CustomerPortalContext {
   overhauls: Ref<Work[]>;
   maintenance: Ref<Work[]>;
   eventChecks: Ref<EventCheck[]>;
+  histories: Ref<History[]>;
   searchText: Ref<string>;
   planFor: (bike: Bike) => Plan;
   remaining: (bike: Bike, kind: ContractService) => number;
@@ -104,5 +105,16 @@ export function useCustomerPortal(ctx: CustomerPortalContext) {
     );
   });
 
-  return { customerBikes, customerName, bikeCards, scheduleRows };
+  const historyRows = computed(() => {
+    const customerBikeIds = new Set(customerBikes.value.map((bike) => bike.id));
+    return ctx.histories.value
+      .filter((history) => customerBikeIds.has(history.bikeId) && history.category !== '作業中止')
+      .map((history) => ({
+        ...history,
+        bike: bikesById.value.get(history.bikeId),
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  });
+
+  return { customerBikes, customerName, bikeCards, scheduleRows, historyRows };
 }

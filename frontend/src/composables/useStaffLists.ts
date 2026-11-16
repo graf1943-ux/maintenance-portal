@@ -15,6 +15,7 @@ interface StaffListsContext {
   searchMaintenance: Ref<string>;
   searchEvents: Ref<string>;
   matchesBikeFilter: (bikeId: number) => boolean;
+  matchesBikeAssignment: (bike: Bike) => boolean;
   planFor: (bike: Bike) => Plan;
   remaining: (bike: Bike, kind: ContractService) => number;
   scheduleRemaining: (bike: Bike, kind: ContractService) => number;
@@ -39,6 +40,7 @@ export function useStaffLists(ctx: StaffListsContext) {
     ctx.sortRows(
       ctx.bikes.value
         .filter((bike) => {
+          if (!ctx.matchesBikeAssignment(bike)) return false;
           const plan = ctx.planFor(bike);
           const shopName = shopNamesById.value.get(bike.shopId) ?? '';
           return matches(

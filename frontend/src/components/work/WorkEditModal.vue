@@ -1,8 +1,14 @@
 <script setup lang="ts">
+  import type { ScheduleTimeSlot } from '../../types';
   import type { ApiStaff } from '../../services/apiMappers';
+  import ScheduleTimeFields from './ScheduleTimeFields.vue';
 
   const startDate = defineModel<string>('startDate', { required: true });
   const endDate = defineModel<string>('endDate', { required: true });
+  const estimatedWorkMinutes = defineModel<number | null>('estimatedWorkMinutes', {
+    required: true,
+  });
+  const scheduleSlots = defineModel<ScheduleTimeSlot[]>('scheduleSlots', { required: true });
   const title = defineModel<string>('title', { required: true });
   const detail = defineModel<string>('detail', { required: true });
   const receptionist = defineModel<string>('receptionist', { required: true });
@@ -23,6 +29,12 @@
       </div>
       <label>作業開始日</label><input v-model="startDate" type="date" />
       <label>作業完了予定日</label><input v-model="endDate" type="date" />
+      <ScheduleTimeFields
+        v-model:estimated-work-minutes="estimatedWorkMinutes"
+        v-model:schedule-slots="scheduleSlots"
+        :start-date="startDate"
+        :end-date="endDate"
+      />
       <label>予定名・イベント名</label><input v-model="title" /> <label>内容・メモ</label
       ><input v-model="detail" />
       <label>受付担当者</label>

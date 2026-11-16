@@ -1,5 +1,6 @@
 import { computed, type Ref } from 'vue';
-import type { Bike, EventCheck, Work } from '../types';
+import type { ApiStaff } from '../services/apiMappers';
+import type { Bike, EventCheck, ScheduleTimeSlot, Work } from '../types';
 import { dateIso } from '../services/apiMappers';
 
 export type StaffCalendarEntry = {
@@ -14,11 +15,17 @@ export type StaffCalendarEntry = {
   bikeLabel: string;
   status: string;
   isAdHoc: boolean;
+  shopId: number;
+  receptionist: string;
+  assignedStaffId?: number;
+  estimatedWorkMinutes: number | null;
+  scheduleSlots: ScheduleTimeSlot[];
   item: Work | EventCheck;
 };
 
 interface StaffCalendarContext {
   bikes: Ref<Bike[]>;
+  staff: Ref<ApiStaff[]>;
   overhauls: Ref<Work[]>;
   maintenance: Ref<Work[]>;
   eventChecks: Ref<EventCheck[]>;
@@ -38,6 +45,12 @@ export function useStaffCalendar(ctx: StaffCalendarContext) {
     ): StaffCalendarEntry => {
       const bike = bikesById.get(item.bikeId);
       const normalizedDate = dateIso(date);
+      const assignedStaffId =
+        item.receptionistId && item.receptionistId > 0
+          ? item.receptionistId
+          : ctx.staff.value.find(
+              (member) => member.shopId === item.shopId && member.name === item.receptionist
+            )?.id;
       return {
         id: `${kind}-${item.id}`,
         kind,
@@ -50,6 +63,11 @@ export function useStaffCalendar(ctx: StaffCalendarContext) {
         bikeLabel: bike ? `${bike.maker} ${bike.model}` : '',
         status: item.status,
         isAdHoc: item.isAdHoc ?? false,
+        shopId: item.shopId,
+        receptionist: item.receptionist,
+        assignedStaffId,
+        estimatedWorkMinutes: item.estimatedWorkMinutes ?? null,
+        scheduleSlots: item.scheduleSlots ?? [],
         item,
       };
     };

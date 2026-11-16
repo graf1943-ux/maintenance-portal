@@ -22,7 +22,12 @@ interface WorkLifecycleContext {
 /** 作業開始・完了の状態遷移をまとめます。履歴と契約回数の更新は完了API側で行います。 */
 export function useWorkLifecycle(ctx: WorkLifecycleContext) {
   function receptionistFor(item: WorkItem) {
-    const receptionist = findReceptionist(ctx.staff.value, item.shopId, item.receptionist);
+    const receptionist = findReceptionist(
+      ctx.staff.value,
+      item.shopId,
+      item.receptionist,
+      item.receptionistId
+    );
     if (!receptionist) ctx.notice.value = '受付担当者を確認してください。';
     return receptionist;
   }

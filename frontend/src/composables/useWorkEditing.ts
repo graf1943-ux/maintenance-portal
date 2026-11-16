@@ -1,9 +1,10 @@
 import { ref, type Ref } from 'vue';
 import { apiPut } from '../api';
-import type { Bike, EventCheck, Work } from '../types';
+import type { Bike, EventCheck, ScheduleTimeSlot, Work } from '../types';
 import { dateIso } from '../services/apiMappers';
 import { isOverhaulSeason } from '../services/contractRules';
 import { findReceptionist } from '../utils/staff';
+import { validateScheduleTimePlan } from '../utils/scheduleTime';
 
 export type EditableWorkKind = 'maintenance' | 'event' | 'overhaul';
 export type EditTarget = { kind: EditableWorkKind; id: number };
@@ -26,6 +27,8 @@ export function useWorkEditing(ctx: WorkEditingContext) {
   const editTarget = ref<EditTarget | null>(null);
   const editDate = ref('');
   const editEndDate = ref('');
+  const editEstimatedWorkMinutes = ref<number | null>(null);
+  const editScheduleSlots = ref<ScheduleTimeSlot[]>([]);
   const editTitle = ref('');
   const editDetail = ref('');
   const editReceptionist = ref('');
@@ -37,6 +40,8 @@ export function useWorkEditing(ctx: WorkEditingContext) {
     const startDate = 'inspectionDate' in item ? item.inspectionDate : item.date;
     editDate.value = startDate.replace(/\//g, '-');
     editEndDate.value = (item.endDate || '').replace(/\//g, '-');
+    editEstimatedWorkMinutes.value = item.estimatedWorkMinutes ?? null;
+    editScheduleSlots.value = (item.scheduleSlots ?? []).map((slot) => ({ ...slot }));
     editTitle.value = 'name' in item ? item.name : item.title;
     editDetail.value = 'name' in item ? item.memo : item.detail;
     editReceptionist.value = item.receptionist || '田中';
@@ -83,6 +88,17 @@ export function useWorkEditing(ctx: WorkEditingContext) {
       ctx.notice.value = editError.value;
       return;
     }
+    const scheduleTimeError = validateScheduleTimePlan(
+      editDate.value,
+      editEndDate.value,
+      editEstimatedWorkMinutes.value,
+      editScheduleSlots.value
+    );
+    if (scheduleTimeError) {
+      editError.value = scheduleTimeError;
+      ctx.notice.value = editError.value;
+      return;
+    }
 
     if (kind === 'event') {
       if (!('eventDate' in item)) return;
@@ -100,6 +116,8 @@ export function useWorkEditing(ctx: WorkEditingContext) {
             shopId: item.shopId,
             receptionistId: staffMember.id,
             isAdHoc: item.isAdHoc ?? false,
+            estimatedWorkMinutes: editEstimatedWorkMinutes.value,
+            scheduleSlots: editScheduleSlots.value,
           }),
         '予定内容を更新しました。契約回数は変更していません。'
       );
@@ -122,6 +140,8 @@ export function useWorkEditing(ctx: WorkEditingContext) {
           detail: editDetail.value,
           receptionistId: staffMember.id,
           isAdHoc: item.isAdHoc ?? false,
+          estimatedWorkMinutes: editEstimatedWorkMinutes.value,
+          scheduleSlots: editScheduleSlots.value,
         }),
       '予定内容を更新しました。契約回数は変更していません。'
     );
@@ -136,6 +156,8 @@ export function useWorkEditing(ctx: WorkEditingContext) {
     editTarget,
     editDate,
     editEndDate,
+    editEstimatedWorkMinutes,
+    editScheduleSlots,
     editTitle,
     editDetail,
     editReceptionist,

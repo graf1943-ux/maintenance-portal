@@ -1,4 +1,13 @@
-import type { Bike, EventCheck, History, Plan, Status, Work, WorkReport } from '../types';
+import type {
+  Bike,
+  EventCheck,
+  History,
+  Plan,
+  ScheduleTimeSlot,
+  Status,
+  Work,
+  WorkReport,
+} from '../types';
 
 export type ApiBike = {
   id: number;
@@ -31,6 +40,8 @@ export type ApiWork = {
   receptionist?: string | null;
   receptionistId?: number | null;
   isAdHoc?: boolean;
+  estimatedWorkMinutes?: number | null;
+  scheduleSlots?: ScheduleTimeSlot[] | null;
 };
 
 export type ApiEvent = {
@@ -45,9 +56,25 @@ export type ApiEvent = {
   shopId: number;
   receptionistId?: number | null;
   isAdHoc?: boolean;
+  estimatedWorkMinutes?: number | null;
+  scheduleSlots?: ScheduleTimeSlot[] | null;
 };
 
 export type ApiCustomer = { id: number; name: string; email: string; phone?: string };
+export type ApiCustomerContact = {
+  id: number;
+  customerId: number;
+  customerName?: string | null;
+  channel: string;
+  summary: string;
+  contactedAtUtc: string;
+  createdBy: string;
+  followUpDate?: string | null;
+  followUpStaffId?: number | null;
+  followUpStaffName?: string | null;
+  followUpStatus: '未対応' | '完了' | '不要';
+  followUpResult?: string | null;
+};
 export type ApiBikeComponent = {
   id: number;
   bikeId: number;
@@ -97,6 +124,7 @@ export function mapBike(x: ApiBike, receptionistName: (id: number) => string): B
     overhaulCompleted: '',
     shopId: x.shopId ?? 1,
     receptionist: receptionistName(x.receptionistId ?? 0),
+    receptionistId: x.receptionistId ?? undefined,
   };
 }
 export function mapWork(x: ApiWork, receptionistName: (id: number) => string): Work {
@@ -110,7 +138,10 @@ export function mapWork(x: ApiWork, receptionistName: (id: number) => string): W
     detail: x.detail,
     shopId: x.shopId,
     receptionist: x.receptionist ?? receptionistName(x.receptionistId ?? 0),
+    receptionistId: x.receptionistId ?? undefined,
     isAdHoc: x.isAdHoc ?? false,
+    estimatedWorkMinutes: x.estimatedWorkMinutes ?? null,
+    scheduleSlots: x.scheduleSlots ?? [],
   };
 }
 export function mapEvent(x: ApiEvent, receptionistName: (id: number) => string): EventCheck {
@@ -125,7 +156,10 @@ export function mapEvent(x: ApiEvent, receptionistName: (id: number) => string):
     memo: x.memo,
     shopId: x.shopId,
     receptionist: receptionistName(x.receptionistId ?? 0),
+    receptionistId: x.receptionistId ?? undefined,
     isAdHoc: x.isAdHoc ?? false,
+    estimatedWorkMinutes: x.estimatedWorkMinutes ?? null,
+    scheduleSlots: x.scheduleSlots ?? [],
   };
 }
 

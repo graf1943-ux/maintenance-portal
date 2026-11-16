@@ -1,8 +1,9 @@
 <script setup lang="ts">
-  import { ref } from 'vue';
+  import { ref, watch } from 'vue';
   import QRCode from 'qrcode';
-  import { apiPost } from '../../api';
+  import { apiGet, apiPost, apiPut } from '../../api';
   import type { Bike, Plan } from '../../types';
+  import type { ApiCustomerContact, ApiStaff } from '../../services/apiMappers';
   import type { CustomerProfileForm } from '../../composables/useCustomerProfileEditor';
   import type { CustomerWorkRow } from '../../composables/useCustomerDetails';
 
@@ -25,6 +26,9 @@
     customerProfileMessage: string;
     bikes: CustomerBikeCard[];
     works: CustomerWorkRow[];
+    staff: ApiStaff[];
+    useMockData: boolean;
+    mockContacts: ApiCustomerContact[];
     showIdentityLink: boolean;
     identityTenantId: string;
     identityObjectId: string;
@@ -37,6 +41,159 @@
   const qrExpires = ref('');
   const qrError = ref('');
   const qrLoading = ref(false);
+  const contacts = ref<ApiCustomerContact[]>([]);
+  const contactsLoading = ref(false);
+  const contactSaving = ref(false);
+  const contactError = ref('');
+  const contactMessage = ref('');
+  const followUpResults = ref<Record<number, string>>({});
+  const updatingFollowUpId = ref<number | null>(null);
+  const contactForm = ref({
+    channel: '電話',
+    summary: '',
+    followUpDate: '',
+    followUpStaffId: '',
+  });
+
+  async function loadContacts(customerId: number | null) {
+    contactError.value = '';
+    contactMessage.value = '';
+    followUpResults.value = {};
+    if (customerId === null) {
+      contacts.value = [];
+      return;
+    }
+
+    if (props.useMockData) {
+      contacts.value = props.mockContacts
+        .filter((contact) => contact.customerId === customerId)
+        .map((contact) => ({ ...contact }));
+      return;
+    }
+
+    contactsLoading.value = true;
+    try {
+      contacts.value = await apiGet<ApiCustomerContact[]>(`/customers/${customerId}/contacts`);
+      followUpResults.value = Object.fromEntries(
+        contacts.value.map((contact) => [contact.id, contact.followUpResult ?? ''])
+      );
+    } catch (error) {
+      contactError.value =
+        error instanceof Error ? error.message : '連絡履歴を読み込めませんでした。';
+    } finally {
+      contactsLoading.value = false;
+    }
+  }
+
+  watch(
+    () => props.customerId,
+    (customerId) => void loadContacts(customerId),
+    { immediate: true }
+  );
+
+  async function saveContact() {
+    const customerId = props.customerId;
+    const summary = contactForm.value.summary.trim();
+    contactError.value = '';
+    contactMessage.value = '';
+    if (customerId === null) {
+      contactError.value = '顧客を選択してください。';
+      return;
+    }
+    if (!summary) {
+      contactError.value = '連絡内容を入力してください。';
+      return;
+    }
+
+    contactSaving.value = true;
+    try {
+      const request = {
+        channel: contactForm.value.channel,
+        summary,
+        followUpDate: contactForm.value.followUpDate || null,
+        followUpStaffId: contactForm.value.followUpDate
+          ? Number(contactForm.value.followUpStaffId) || null
+          : null,
+      };
+      if (props.useMockData) {
+        const staffMember = props.staff.find((member) => member.id === request.followUpStaffId);
+        contacts.value.unshift({
+          id: Date.now(),
+          customerId,
+          ...request,
+          contactedAtUtc: new Date().toISOString(),
+          createdBy: 'スタッフ',
+          followUpStaffName: staffMember?.name ?? null,
+          followUpStatus: request.followUpDate ? '未対応' : '不要',
+          followUpResult: null,
+        });
+      } else {
+        await apiPost<ApiCustomerContact>(`/customers/${customerId}/contacts`, request);
+        await loadContacts(customerId);
+      }
+      contactForm.value.summary = '';
+      contactForm.value.followUpDate = '';
+      contactForm.value.followUpStaffId = '';
+      contactMessage.value = '連絡履歴を登録しました。';
+      emit('contacts-changed', contacts.value);
+    } catch (error) {
+      contactError.value =
+        error instanceof Error ? error.message : '連絡履歴を登録できませんでした。';
+    } finally {
+      contactSaving.value = false;
+    }
+  }
+
+  async function updateFollowUp(
+    contact: ApiCustomerContact,
+    status: ApiCustomerContact['followUpStatus']
+  ) {
+    if (props.customerId === null) return;
+    contactError.value = '';
+    contactMessage.value = '';
+    updatingFollowUpId.value = contact.id;
+    try {
+      const result = followUpResults.value[contact.id]?.trim() ?? '';
+      if (props.useMockData) {
+        contacts.value = contacts.value.map((item) =>
+          item.id === contact.id
+            ? { ...item, followUpStatus: status, followUpResult: result || null }
+            : item
+        );
+      } else {
+        const updated = await apiPut<ApiCustomerContact>(
+          `/customers/${props.customerId}/contacts/${contact.id}/follow-up`,
+          { followUpStatus: status, followUpResult: result }
+        );
+        contacts.value = contacts.value.map((item) => (item.id === contact.id ? updated : item));
+      }
+      contactMessage.value = 'フォローアップを更新しました。';
+      emit('contacts-changed', contacts.value);
+    } catch (error) {
+      contactError.value =
+        error instanceof Error ? error.message : 'フォローアップを更新できませんでした。';
+    } finally {
+      updatingFollowUpId.value = null;
+    }
+  }
+
+  function formatContactDate(value: string) {
+    return new Date(value).toLocaleString('ja-JP', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  function isFollowUpOverdue(contact: ApiCustomerContact) {
+    if (!contact.followUpDate || contact.followUpStatus !== '未対応') return false;
+    const today = new Date();
+    today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+    return contact.followUpDate < today.toISOString().slice(0, 10);
+  }
+
   async function issueQr() {
     if (!props.customerId) return;
     qrLoading.value = true;
@@ -61,7 +218,7 @@
 
   const profile = defineModel<CustomerProfileForm>('customer-profile', { required: true });
 
-  defineEmits<{
+  const emit = defineEmits<{
     'edit-customer': [];
     'cancel-customer-edit': [];
     'save-customer': [];
@@ -74,6 +231,7 @@
       payload: { target: 'overhaul' | 'maintenance' | 'events' | 'history'; bikeId: number },
     ];
     'open-bike-detail': [bikeId: number];
+    'contacts-changed': [contacts: ApiCustomerContact[]];
   }>();
 </script>
 
@@ -330,6 +488,135 @@
             </tbody>
           </table>
         </div>
+      </section>
+      <section class="customer-profile-section customer-contact-section">
+        <div class="panel-head">
+          <div>
+            <h3>連絡履歴・フォローアップ</h3>
+            <p>連絡内容を記録し、次回の連絡予定と対応結果を管理します。</p>
+          </div>
+          <span class="status warning">
+            未対応 {{ contacts.filter((contact) => contact.followUpStatus === '未対応').length }}件
+          </span>
+        </div>
+        <form class="customer-contact-form" @submit.prevent="saveContact">
+          <label>
+            連絡方法
+            <select v-model="contactForm.channel">
+              <option>電話</option>
+              <option>来店</option>
+              <option>メール</option>
+              <option>その他</option>
+            </select>
+          </label>
+          <label class="customer-contact-summary">
+            連絡内容
+            <textarea
+              v-model="contactForm.summary"
+              maxlength="1000"
+              rows="2"
+              placeholder="相談内容や対応内容を入力"
+              required
+            />
+          </label>
+          <label>
+            フォローアップ日（任意）
+            <input v-model="contactForm.followUpDate" type="date" />
+          </label>
+          <label>
+            担当者（任意）
+            <select v-model="contactForm.followUpStaffId" :disabled="!contactForm.followUpDate">
+              <option value="">未指定</option>
+              <option v-for="member in staff" :key="member.id" :value="String(member.id)">
+                {{ member.name }}
+              </option>
+            </select>
+          </label>
+          <button class="primary small" type="submit" :disabled="contactSaving">
+            {{ contactSaving ? '登録中…' : '連絡を記録' }}
+          </button>
+        </form>
+        <p v-if="contactError" class="customer-identity-feedback error">{{ contactError }}</p>
+        <p v-if="contactMessage" class="customer-identity-feedback success">{{ contactMessage }}</p>
+        <p v-if="contactsLoading" class="empty-state">連絡履歴を読み込み中です…</p>
+        <div v-else-if="contacts.length" class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>日時・方法</th>
+                <th>連絡内容</th>
+                <th>次回連絡</th>
+                <th>担当・状態</th>
+                <th>対応結果</th>
+                <th>更新</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="contact in contacts" :key="contact.id">
+                <td>
+                  {{ formatContactDate(contact.contactedAtUtc) }}
+                  <span class="customer-contact-channel">{{ contact.channel }}</span>
+                </td>
+                <td>{{ contact.summary }}</td>
+                <td>
+                  <template v-if="contact.followUpDate">
+                    {{ contact.followUpDate.replace(/-/g, '/') }}
+                    <span v-if="isFollowUpOverdue(contact)" class="status danger">期限超過</span>
+                  </template>
+                  <span v-else>—</span>
+                </td>
+                <td>
+                  <template v-if="contact.followUpDate">
+                    <span>{{ contact.followUpStaffName || '未指定' }}</span>
+                    <span
+                      class="status"
+                      :class="contact.followUpStatus === '未対応' ? 'warning' : 'success'"
+                    >
+                      {{ contact.followUpStatus }}
+                    </span>
+                  </template>
+                  <span v-else>—</span>
+                </td>
+                <td>
+                  <input
+                    v-if="contact.followUpDate"
+                    v-model="followUpResults[contact.id]"
+                    class="customer-contact-result"
+                    maxlength="1000"
+                    placeholder="結果を記録"
+                  />
+                  <span v-else>—</span>
+                </td>
+                <td>
+                  <div v-if="contact.followUpDate" class="customer-contact-actions">
+                    <button
+                      class="outline small"
+                      :disabled="updatingFollowUpId === contact.id"
+                      @click="
+                        updateFollowUp(
+                          contact,
+                          contact.followUpStatus === '完了' ? '未対応' : '完了'
+                        )
+                      "
+                    >
+                      {{ contact.followUpStatus === '完了' ? '未対応に戻す' : '完了' }}
+                    </button>
+                    <button
+                      v-if="contact.followUpStatus === '未対応'"
+                      class="outline small"
+                      :disabled="updatingFollowUpId === contact.id"
+                      @click="updateFollowUp(contact, '不要')"
+                    >
+                      不要
+                    </button>
+                  </div>
+                  <span v-else>—</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else class="empty-state">連絡履歴はまだありません。</p>
       </section>
       <div class="modal-actions">
         <button class="outline" @click="$emit('close')">閉じる</button>

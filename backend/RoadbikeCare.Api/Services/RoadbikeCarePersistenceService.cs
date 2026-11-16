@@ -1,4 +1,5 @@
 using System.Data;
+using System.Globalization;
 using System.Linq.Expressions;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -229,6 +230,13 @@ public sealed class RoadbikeCarePersistenceService(RoadbikeCareDbContext db)
             return ServiceResult<WorkItem>.Invalid("作業完了予定日は開始日以降にしてください。");
         }
 
+        var scheduleError = ValidateScheduleTimePlan(
+            input.StartDate, input.EndDate, input.EstimatedWorkMinutes, input.ScheduleSlots);
+        if (scheduleError is not null)
+        {
+            return ServiceResult<WorkItem>.Invalid(scheduleError);
+        }
+
         if (kind == "overhaul" && !await IsOverhaulWindowAsync(input.BikeId, input.StartDate, cancellationToken))
         {
             return ServiceResult<WorkItem>.Invalid("オーバーホールの実施期間は契約開始年11月1日から翌年2月末までです。");
@@ -240,7 +248,9 @@ public sealed class RoadbikeCarePersistenceService(RoadbikeCareDbContext db)
         }
 
         var item = new WorkItem(await NewIdAsync(db.WorkItems, x => x.Id, cancellationToken), input.BikeId, kind, input.StartDate, input.EndDate,
-            input.IsAdHoc ? "作業中" : "案内待ち", input.Title, input.Detail, input.ShopId, input.ReceptionistId, IsAdHoc: input.IsAdHoc);
+            input.IsAdHoc ? "作業中" : "案内待ち", input.Title, input.Detail, input.ShopId, input.ReceptionistId,
+            IsAdHoc: input.IsAdHoc, EstimatedWorkMinutes: input.EstimatedWorkMinutes,
+            ScheduleSlotsJson: SerializeScheduleSlots(input.ScheduleSlots));
         db.WorkItems.Add(item);
         await db.SaveChangesAsync(cancellationToken);
         WorkItem created = await WorkQuery().SingleAsync(x => x.Id == item.Id, cancellationToken);
@@ -261,6 +271,15 @@ public sealed class RoadbikeCarePersistenceService(RoadbikeCareDbContext db)
             return ServiceResult<WorkItem>.Invalid("完了予定日は開始日以降にしてください。");
         }
 
+        List<ScheduleTimeSlot>? scheduleSlots = input.ScheduleSlots ??
+            DeserializeScheduleSlots(item.ScheduleSlotsJson);
+        var scheduleError = ValidateScheduleTimePlan(
+            input.StartDate, input.EndDate, input.EstimatedWorkMinutes, scheduleSlots);
+        if (scheduleError is not null)
+        {
+            return ServiceResult<WorkItem>.Invalid(scheduleError);
+        }
+
         if (item.Status is "完了" or "作業中止")
         {
             return ServiceResult<WorkItem>.Invalid("完了または中止済みの作業は変更できません。");
@@ -279,7 +298,11 @@ public sealed class RoadbikeCarePersistenceService(RoadbikeCareDbContext db)
             Title = input.Title,
             Detail = input.Detail,
             ReceptionistId = input.ReceptionistId,
-            IsAdHoc = input.IsAdHoc ?? item.IsAdHoc
+            IsAdHoc = input.IsAdHoc ?? item.IsAdHoc,
+            EstimatedWorkMinutes = input.EstimatedWorkMinutes,
+            ScheduleSlotsJson = input.ScheduleSlots is null
+                ? item.ScheduleSlotsJson
+                : SerializeScheduleSlots(input.ScheduleSlots)
         };
         db.Entry(item).CurrentValues.SetValues(updated);
         await db.SaveChangesAsync(cancellationToken);
@@ -288,6 +311,79 @@ public sealed class RoadbikeCarePersistenceService(RoadbikeCareDbContext db)
 
     public Task<ServiceResult<WorkItem>> CompleteWorkAsync(int id, CompleteWorkRequest input, CancellationToken cancellationToken) =>
         ExecuteWithExecutionStrategyAsync(() => CompleteWorkCoreAsync(id, input, cancellationToken));
+
+    private static string? ValidateScheduleTimePlan(
+        DateOnly startDate,
+        DateOnly? endDate,
+        int? estimatedWorkMinutes,
+        List<ScheduleTimeSlot>? scheduleSlots)
+    {
+        if (estimatedWorkMinutes is < 1 or > 10080)
+        {
+            return "作業見込み時間は1〜10,080分で入力してください。";
+        }
+
+        if (scheduleSlots is null)
+        {
+            return null;
+        }
+
+        if (scheduleSlots.Count > 100)
+        {
+            return "時間枠は100件以内で登録してください。";
+        }
+        if (scheduleSlots.Any(slot => slot is null))
+        {
+            return "時間枠の内容を確認してください。";
+        }
+
+        DateOnly lastDate = endDate ?? startDate;
+        var sortedSlots = scheduleSlots
+            .OrderBy(slot => slot.Date)
+            .ThenBy(slot => slot.StartTime, StringComparer.Ordinal)
+            .ToList();
+        ScheduleTimeSlot? previous = null;
+        TimeOnly previousEndTime = default;
+
+        foreach (ScheduleTimeSlot slot in sortedSlots)
+        {
+            if (slot.Date < startDate || slot.Date > lastDate)
+            {
+                return "時間枠の日付は作業開始日〜完了予定日の範囲で指定してください。";
+            }
+
+            if (!TimeOnly.TryParseExact(
+                    slot.StartTime, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out TimeOnly startTime) ||
+                !TimeOnly.TryParseExact(
+                    slot.EndTime, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out TimeOnly endTime))
+            {
+                return "時間枠の開始・終了時刻はHH:mm形式で指定してください。";
+            }
+
+            if (startTime >= endTime)
+            {
+                return "時間枠の終了時刻は開始時刻より後にしてください。";
+            }
+
+            if (previous?.Date == slot.Date && startTime < previousEndTime)
+            {
+                return "同じ作業内の時間枠が重複しています。";
+            }
+
+            previous = slot;
+            previousEndTime = endTime;
+        }
+
+        return null;
+    }
+
+    private static string? SerializeScheduleSlots(List<ScheduleTimeSlot>? scheduleSlots) =>
+        scheduleSlots is null ? null : JsonSerializer.Serialize(scheduleSlots);
+
+    private static List<ScheduleTimeSlot>? DeserializeScheduleSlots(string? scheduleSlotsJson) =>
+        string.IsNullOrWhiteSpace(scheduleSlotsJson)
+            ? null
+            : JsonSerializer.Deserialize<List<ScheduleTimeSlot>>(scheduleSlotsJson);
 
     private static string? ValidateWorkReport(CompleteWorkReportRequest? report)
     {
@@ -360,7 +456,9 @@ public sealed class RoadbikeCarePersistenceService(RoadbikeCareDbContext db)
                 Unit = part.Unit.Trim()
             }).ToList(),
             shopName,
-            staffName);
+            staffName,
+            shopId,
+            receptionistId);
         return JsonSerializer.Serialize(savedReport);
     }
 
@@ -460,13 +558,23 @@ public sealed class RoadbikeCarePersistenceService(RoadbikeCareDbContext db)
             return ServiceResult<EventCheck>.Invalid("点検完了予定日は開始日以降にしてください。");
         }
 
+        var scheduleError = ValidateScheduleTimePlan(
+            input.InspectionStartDate, input.InspectionEndDate,
+            input.EstimatedWorkMinutes, input.ScheduleSlots);
+        if (scheduleError is not null)
+        {
+            return ServiceResult<EventCheck>.Invalid(scheduleError);
+        }
+
         if (!await HasScheduleCapacityAsync(input.BikeId, "inspection", cancellationToken))
         {
             return ServiceResult<EventCheck>.Invalid("点検サポートの契約上限回数に達しています。既存の予定または実施履歴を確認してください。");
         }
 
         var item = new EventCheck(await NewIdAsync(db.Events, x => x.Id, cancellationToken), input.BikeId, input.Name, input.EventDate, input.InspectionStartDate,
-            input.InspectionEndDate, input.IsAdHoc ? "作業中" : "案内待ち", input.Memo, input.ShopId, input.ReceptionistId, IsAdHoc: input.IsAdHoc);
+            input.InspectionEndDate, input.IsAdHoc ? "作業中" : "案内待ち", input.Memo, input.ShopId, input.ReceptionistId,
+            IsAdHoc: input.IsAdHoc, EstimatedWorkMinutes: input.EstimatedWorkMinutes,
+            ScheduleSlotsJson: SerializeScheduleSlots(input.ScheduleSlots));
         db.Events.Add(item);
         await db.SaveChangesAsync(cancellationToken);
         EventCheck created = await EventQuery().SingleAsync(x => x.Id == item.Id, cancellationToken);
@@ -487,6 +595,21 @@ public sealed class RoadbikeCarePersistenceService(RoadbikeCareDbContext db)
             return ServiceResult<EventCheck>.Invalid("完了または中止済みの点検は変更できません。");
         }
 
+        if (input.InspectionEndDate is not null && input.InspectionEndDate < input.InspectionStartDate)
+        {
+            return ServiceResult<EventCheck>.Invalid("点検完了予定日は開始日以降にしてください。");
+        }
+
+        List<ScheduleTimeSlot>? scheduleSlots = input.ScheduleSlots ??
+            DeserializeScheduleSlots(item.ScheduleSlotsJson);
+        var scheduleError = ValidateScheduleTimePlan(
+            input.InspectionStartDate, input.InspectionEndDate,
+            input.EstimatedWorkMinutes, scheduleSlots);
+        if (scheduleError is not null)
+        {
+            return ServiceResult<EventCheck>.Invalid(scheduleError);
+        }
+
         EventCheck updated = item with
         {
             BikeId = input.BikeId,
@@ -498,7 +621,11 @@ public sealed class RoadbikeCarePersistenceService(RoadbikeCareDbContext db)
             Memo = input.Memo,
             ShopId = input.ShopId,
             ReceptionistId = input.ReceptionistId,
-            IsAdHoc = input.IsAdHoc ?? item.IsAdHoc
+            IsAdHoc = input.IsAdHoc ?? item.IsAdHoc,
+            EstimatedWorkMinutes = input.EstimatedWorkMinutes,
+            ScheduleSlotsJson = input.ScheduleSlots is null
+                ? item.ScheduleSlotsJson
+                : SerializeScheduleSlots(input.ScheduleSlots)
         };
         db.Entry(item).CurrentValues.SetValues(updated);
         await db.SaveChangesAsync(cancellationToken);

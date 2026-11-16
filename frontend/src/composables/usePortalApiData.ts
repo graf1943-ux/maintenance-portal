@@ -8,6 +8,7 @@ import {
   mapWork,
   type ApiBike,
   type ApiCustomer,
+  type ApiCustomerContact,
   type ApiEvent,
   type ApiHistory,
   type ApiShop,
@@ -24,6 +25,7 @@ interface PortalApiDataContext {
   role: Ref<'staff' | 'customer'>;
   notice: Ref<string>;
   customers: Ref<ApiCustomer[]>;
+  customerFollowUps: Ref<ApiCustomerContact[]>;
   shops: Ref<ApiShop[]>;
   staff: Ref<ApiStaff[]>;
   plans: Ref<Plan[]>;
@@ -54,20 +56,32 @@ export function usePortalApiData(ctx: PortalApiDataContext) {
   async function reloadData() {
     if (ctx.useMockData) return;
     const isStaff = ctx.role.value === 'staff';
-    const [customers, shops, staff, plans, bikes, overhauls, maintenance, events, histories] =
-      await Promise.all([
-        apiGet<ApiCustomer[]>('/customers'),
-        isStaff ? apiGet<ApiShop[]>('/shops') : Promise.resolve([]),
-        isStaff ? apiGet<ApiStaff[]>('/staff') : Promise.resolve([]),
-        apiGet<Plan[]>('/plans'),
-        apiGet<ApiBike[]>('/bikes'),
-        apiGet<ApiWork[]>('/overhauls'),
-        apiGet<ApiWork[]>('/maintenance'),
-        apiGet<ApiEvent[]>('/events'),
-        apiGet<ApiHistory[]>('/history'),
-      ]);
+    const [
+      customers,
+      shops,
+      staff,
+      plans,
+      bikes,
+      overhauls,
+      maintenance,
+      events,
+      histories,
+      customerFollowUps,
+    ] = await Promise.all([
+      apiGet<ApiCustomer[]>('/customers'),
+      isStaff ? apiGet<ApiShop[]>('/shops') : Promise.resolve([]),
+      isStaff ? apiGet<ApiStaff[]>('/staff') : Promise.resolve([]),
+      apiGet<Plan[]>('/plans'),
+      apiGet<ApiBike[]>('/bikes'),
+      apiGet<ApiWork[]>('/overhauls'),
+      apiGet<ApiWork[]>('/maintenance'),
+      apiGet<ApiEvent[]>('/events'),
+      apiGet<ApiHistory[]>('/history'),
+      isStaff ? apiGet<ApiCustomerContact[]>('/customer-contacts/follow-ups') : Promise.resolve([]),
+    ]);
 
     ctx.customers.value = customers;
+    ctx.customerFollowUps.value = customerFollowUps;
     ctx.shops.value = shops;
     ctx.staff.value = staff;
     ctx.plans.value = plans;

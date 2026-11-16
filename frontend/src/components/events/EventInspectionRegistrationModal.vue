@@ -1,10 +1,17 @@
 <script setup lang="ts">
+  import type { ScheduleTimeSlot } from '../../types';
+  import ScheduleTimeFields from '../work/ScheduleTimeFields.vue';
+
   const bikeSearch = defineModel<string>('bikeSearch', { required: true });
   const eventName = defineModel<string>('eventName', { required: true });
   const eventDate = defineModel<string>('eventDate', { required: true });
   const inspectionStartDate = defineModel<string>('inspectionStartDate', { required: true });
   const inspectionEndDate = defineModel<string>('inspectionEndDate', { required: true });
   const isAdHoc = defineModel<boolean>('isAdHoc', { required: true });
+  const estimatedWorkMinutes = defineModel<number | null>('estimatedWorkMinutes', {
+    required: true,
+  });
+  const scheduleSlots = defineModel<ScheduleTimeSlot[]>('scheduleSlots', { required: true });
 
   defineProps<{
     bikeSelected: boolean;
@@ -53,6 +60,12 @@
           <input v-model="inspectionEndDate" type="date" />
         </div>
       </div>
+      <ScheduleTimeFields
+        v-model:estimated-work-minutes="estimatedWorkMinutes"
+        v-model:schedule-slots="scheduleSlots"
+        :start-date="inspectionStartDate"
+        :end-date="inspectionEndDate"
+      />
       <label class="checkbox-label">
         <input v-model="isAdHoc" type="checkbox" />
         予約なしの突発点検サポートとして受付（受付と同時に点検開始）

@@ -12,11 +12,22 @@
     status: string;
     isAdHoc?: boolean;
   };
+  type CustomerFollowUp = {
+    id: number;
+    customerId: number;
+    customerName?: string | null;
+    channel: string;
+    summary: string;
+    followUpDate?: string | null;
+    followUpStaffName?: string | null;
+  };
 
   defineProps<{
     bikes: Bike[];
+    bikesCount: number;
     dashboardRows: DashboardRow[];
     reminders: DashboardReminder[];
+    customerFollowUps: CustomerFollowUp[];
     upcomingCount: number;
     pendingCount: number;
     completedCount: number;
@@ -30,6 +41,13 @@
     'open-customer': [name: string];
     'open-bike': [bikeId: number];
   }>();
+
+  function isOverdueFollowUp(date?: string | null) {
+    if (!date) return false;
+    const today = new Date();
+    today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+    return date < today.toISOString().slice(0, 10);
+  }
 </script>
 
 <template>
@@ -49,7 +67,7 @@
   <div class="stats">
     <div class="stat-card">
       <div class="stat-top"><span>登録自転車数</span><span class="stat-icon blue">🚴</span></div>
-      <strong>{{ bikes.length }}</strong><small>台</small>
+      <strong>{{ bikesCount }}</strong><small>台</small>
     </div>
     <div class="stat-card">
       <div class="stat-top">
@@ -116,6 +134,55 @@
           </tr>
           <tr v-if="reminders.length === 0">
             <td colspan="5" class="empty-state">現在、要対応の項目はありません。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>顧客フォローアップ</h2>
+        <p>未対応の次回連絡予定。期限の近い順に表示します。</p>
+      </div>
+      <span class="status warning">{{ customerFollowUps.length }}件</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>顧客</th>
+            <th>次回連絡日</th>
+            <th>連絡方法・内容</th>
+            <th>担当者</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="followUp in customerFollowUps.slice(0, 8)" :key="followUp.id">
+            <td>
+              <button
+                class="customer-link"
+                @click="$emit('open-customer', followUp.customerName || '')"
+              >
+                {{ followUp.customerName || '顧客' }}
+              </button>
+            </td>
+            <td>
+              <span
+                class="status"
+                :class="isOverdueFollowUp(followUp.followUpDate) ? 'danger' : 'warning'"
+              >
+                {{ (followUp.followUpDate || '').replace(/-/g, '/') }}
+              </span>
+            </td>
+            <td>
+              <b>{{ followUp.channel }}</b>
+              <small class="cell-sub">{{ followUp.summary }}</small>
+            </td>
+            <td>{{ followUp.followUpStaffName || '未指定' }}</td>
+          </tr>
+          <tr v-if="customerFollowUps.length === 0">
+            <td colspan="4" class="empty-state">未対応のフォローアップはありません。</td>
           </tr>
         </tbody>
       </table>

@@ -265,7 +265,7 @@ Vueモックモードは設定不要で、API通信も行いません。APIモ�
 
 ## Azure SQL永続化
 
-APIはEF Core SQL Server Providerを介してデータを読み書きします。テーブル変更は `backend/RoadbikeCare.Api/Data/Migrations/` のSQL Serverマイグレーションで管理し、デプロイ前に `dotnet ef database update` を実行します。契約枠の検証・予定登録・作業完了の関連更新はトランザクション内で処理します。APIのURLとJSON形式は維持します。
+APIはEF Core SQL Server Providerを介してデータを読み書きします。テーブル変更は `backend/RoadbikeCare.Api/Data/Migrations/` のSQL Serverマイグレーションで管理し、デプロイ前に `dotnet ef database update` を実行します。契約枠の検証・予定登録・作業完了の関連更新はトランザクション内で処理します。作業見込み時間と日ごとの予定時間枠を保持し、未設定の予定は時間要確認として表示します。APIのURLとJSON形式は維持します。
 
 
 ## データ取得元の切り替え

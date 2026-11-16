@@ -1,4 +1,4 @@
-import type { ApiCustomer, ApiShop, ApiStaff } from '../services/apiMappers';
+import type { ApiCustomer, ApiCustomerContact, ApiShop, ApiStaff } from '../services/apiMappers';
 import type { Bike, EventCheck, History, Plan, Work } from '../types';
 
 /** Vueモックモードで表示するサンプルデータ。呼び出しごとに新しいデータを返します。 */
@@ -18,6 +18,22 @@ export function createMockData() {
       { id: 2, name: '佐藤 花子', email: 'h.sato@example.com', phone: '090-0000-0002' },
       { id: 3, name: '鈴木 一郎', email: 'i.suzuki@example.com', phone: '090-0000-0003' },
     ] satisfies ApiCustomer[],
+    customerContacts: [
+      {
+        id: 1,
+        customerId: 1,
+        customerName: '山田 太郎',
+        channel: '電話',
+        summary: '点検後の乗り心地を確認。今のところ問題なしとのこと。',
+        contactedAtUtc: '2026-11-14T01:20:00Z',
+        createdBy: '田中',
+        followUpDate: '2026-11-20',
+        followUpStaffId: 1,
+        followUpStaffName: '田中',
+        followUpStatus: '未対応',
+        followUpResult: '',
+      },
+    ] satisfies ApiCustomerContact[],
     plans: [
       {
         id: 1,
@@ -259,6 +275,13 @@ export function createMockData() {
         category: 'メンテナンス',
         title: '春の目標イベント前メンテナンス',
         detail: '駆動系・変速・ブレーキ調整',
+        report: {
+          workMinutes: 90,
+          checklist: [{ item: 'ブレーキ', result: '良好', note: '動作確認済み' }],
+          parts: [{ name: 'チェーン', quantity: 1, unit: '本' }],
+          shopName: '金沢本店',
+          staffName: '田中',
+        },
       },
       {
         id: 2,

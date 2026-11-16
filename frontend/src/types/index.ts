@@ -37,7 +37,13 @@ export type Bike = {
   overhaulCompleted: string;
   shopId: number;
   receptionist: string;
+  receptionistId?: number;
   isAdHoc?: boolean;
+};
+export type ScheduleTimeSlot = {
+  date: string;
+  startTime: string;
+  endTime: string;
 };
 export type Work = {
   id: number;
@@ -49,7 +55,10 @@ export type Work = {
   detail: string;
   shopId: number;
   receptionist: string;
+  receptionistId?: number;
   isAdHoc?: boolean;
+  estimatedWorkMinutes?: number | null;
+  scheduleSlots?: ScheduleTimeSlot[];
 };
 export type EventCheck = {
   id: number;
@@ -62,7 +71,10 @@ export type EventCheck = {
   memo: string;
   shopId: number;
   receptionist: string;
+  receptionistId?: number;
   isAdHoc?: boolean;
+  estimatedWorkMinutes?: number | null;
+  scheduleSlots?: ScheduleTimeSlot[];
 };
 export type WorkChecklistResult = '良好' | '調整' | '交換' | '対象外';
 export type WorkChecklistItem = {
@@ -83,6 +95,8 @@ export type WorkReport = {
   parts: WorkReportPart[];
   shopName?: string;
   staffName?: string;
+  shopId?: number;
+  receptionistId?: number;
 };
 export type History = {
   id: number;

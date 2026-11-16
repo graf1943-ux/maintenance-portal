@@ -2,6 +2,9 @@
   import { computed, defineAsyncComponent, h, ref, type Component } from 'vue';
   import AppSidebar from './components/layout/AppSidebar.vue';
   import AppHeader from './components/layout/AppHeader.vue';
+  const StaffAssignmentFilter = lazyComponent(
+    () => import('./components/layout/StaffAssignmentFilter.vue')
+  );
   function lazyComponent<T extends Component>(loader: () => Promise<{ default: T }>) {
     return defineAsyncComponent<T>({
       loader,
@@ -58,10 +61,19 @@
   const PlansView = lazyComponent(() => import('./components/plans/PlansView.vue'));
   const LoginView = lazyComponent(() => import('./components/auth/LoginView.vue'));
   import { authState, isAuthConfigured } from './auth';
-  import type { Page, Status, Plan, Bike, Work, EventCheck, History } from './types';
+  import type {
+    Page,
+    Status,
+    Plan,
+    Bike,
+    Work,
+    EventCheck,
+    History,
+    ScheduleTimeSlot,
+  } from './types';
   import { pageTitles } from './constants/pages';
   import { useListSort } from './utils/list';
-  import type { ApiCustomer, ApiShop, ApiStaff } from './services/apiMappers';
+  import type { ApiCustomer, ApiCustomerContact, ApiShop, ApiStaff } from './services/apiMappers';
   import { useScheduleRegistration } from './composables/useScheduleRegistration';
   import { useWorkLifecycle } from './composables/useWorkLifecycle';
   import { useContractUsage } from './composables/useContractUsage';
@@ -92,6 +104,7 @@
   import { useCustomerProfileEditor } from './composables/useCustomerProfileEditor';
   import { useWorkStop } from './composables/useWorkStop';
   import { useWorkCompletion } from './composables/useWorkCompletion';
+  import { useStaffAssignmentFilters } from './composables/useStaffAssignmentFilters';
   const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true';
   const mockData = createMockData();
   const dataSourceStatus = ref<'mock' | 'api' | 'error'>(USE_MOCK_DATA ? 'mock' : 'api');
@@ -103,6 +116,19 @@
     role = ref<'staff' | 'customer'>('staff'),
     selectedBikeId = ref(1),
     notice = ref('');
+  const assignmentFilterPages: Page[] = [
+    'dashboard',
+    'calendar',
+    'bikes',
+    'overhaul',
+    'maintenance',
+    'events',
+    'history',
+    'messages',
+  ];
+  const showStaffAssignmentFilter = computed(
+    () => role.value === 'staff' && assignmentFilterPages.includes(page.value)
+  );
   const showOverhaulModal = ref(false),
     showMaintenanceModal = ref(false),
     showEventModal = ref(false);
@@ -124,6 +150,9 @@
   const shops = ref<ApiShop[]>(mockData.shops);
   const staff = ref<ApiStaff[]>(mockData.staff);
   const customers = ref<ApiCustomer[]>(mockData.customers);
+  const customerFollowUps = ref<ApiCustomerContact[]>(
+    mockData.customerContacts.filter((contact) => contact.followUpStatus === '未対応')
+  );
   const plans = ref<Plan[]>(mockData.plans);
 
   const bikes = ref<Bike[]>(mockData.bikes);
@@ -140,11 +169,30 @@
   const maintenance = ref<Work[]>(mockData.maintenance);
   const eventChecks = ref<EventCheck[]>(mockData.eventChecks);
   const histories = ref<History[]>(mockData.histories);
-  const { entries: staffCalendarEntries } = useStaffCalendar({
+  const {
+    selectedShopId,
+    selectedStaffId,
+    filteredBikes,
+    filteredOverhauls,
+    filteredMaintenance,
+    filteredEventChecks,
+    filteredHistories,
+    matchesBikeAssignment,
+  } = useStaffAssignmentFilters({
+    shops,
+    staff,
     bikes,
     overhauls,
     maintenance,
     eventChecks,
+    histories,
+  });
+  const { entries: staffCalendarEntries } = useStaffCalendar({
+    bikes,
+    staff,
+    overhauls: filteredOverhauls,
+    maintenance: filteredMaintenance,
+    eventChecks: filteredEventChecks,
   });
   const { dataSourceTitle, dataSourceMessage, reloadData, apiAction } = usePortalApiData({
     useMockData: USE_MOCK_DATA,
@@ -152,6 +200,7 @@
     role,
     notice,
     customers,
+    customerFollowUps,
     shops,
     staff,
     plans,
@@ -209,12 +258,16 @@
     newOverhaulReceptionDate = ref('2026-12-15'),
     newOverhaulDate = ref('2027-01-15'),
     newOverhaulEndDate = ref('2027-01-16'),
+    newOverhaulEstimatedWorkMinutes = ref<number | null>(null),
+    newOverhaulScheduleSlots = ref<ScheduleTimeSlot[]>([]),
     newOverhaulIsAdHoc = ref(false),
     newOverhaulTitle = ref('年間オーバーホール'),
     newOverhaulDetail = ref('全体点検・消耗品確認・駆動系整備');
   const newWorkBike = ref(1),
     newWorkDate = ref('2027-07-01'),
     newWorkEndDate = ref('2027-07-01'),
+    newWorkEstimatedWorkMinutes = ref<number | null>(null),
+    newWorkScheduleSlots = ref<ScheduleTimeSlot[]>([]),
     newWorkIsAdHoc = ref(false),
     newWorkTitle = ref('メインイベントに向けたメンテナンス'),
     newWorkDetail = ref('イベントに向けた状態確認・調整');
@@ -223,6 +276,8 @@
     newEventDate = ref('2027-08-01'),
     newInspectionDate = ref('2027-07-28'),
     newInspectionEndDate = ref('2027-07-28'),
+    newEventEstimatedWorkMinutes = ref<number | null>(null),
+    newEventScheduleSlots = ref<ScheduleTimeSlot[]>([]),
     newEventIsAdHoc = ref(false);
   useAdHocScheduleDates([
     {
@@ -252,9 +307,9 @@
     customers,
     bikes,
     shops,
-    overhauls,
-    maintenance,
-    eventChecks,
+    overhauls: filteredOverhauls,
+    maintenance: filteredMaintenance,
+    eventChecks: filteredEventChecks,
     planFor,
     remaining,
     scheduleRemaining,
@@ -335,25 +390,37 @@
     todayLabel: today,
   } = useDashboardData({
     bikes,
-    overhauls,
-    maintenance,
-    eventChecks,
-    histories,
+    overhauls: filteredOverhauls,
+    maintenance: filteredMaintenance,
+    eventChecks: filteredEventChecks,
+    histories: filteredHistories,
     sortRows: sortByDate,
   });
   const { historyRows, historyCount, messageRows } = useActivityLists({
     bikes,
-    histories,
+    histories: filteredHistories,
     reminders,
     selectedBikeFilter,
     searchHistory,
     searchMessages,
     sortRows: sortByDate,
   });
+
+  function updateCustomerFollowUps(contacts: ApiCustomerContact[]) {
+    const customer = selectedCustomer.value;
+    if (!customer) return;
+    customerFollowUps.value = [
+      ...customerFollowUps.value.filter((contact) => contact.customerId !== customer.id),
+      ...contacts
+        .filter((contact) => contact.followUpDate && contact.followUpStatus === '未対応')
+        .map((contact) => ({ ...contact, customerName: customer.name })),
+    ];
+  }
   const {
     customerName: customerPortalName,
     bikeCards: mypageBikeCards,
     scheduleRows: mypageScheduleRows,
+    historyRows: mypageHistoryRows,
   } = useCustomerPortal({
     useMockData: USE_MOCK_DATA,
     portalProfile,
@@ -361,6 +428,7 @@
     overhauls,
     maintenance,
     eventChecks,
+    histories,
     searchText: searchMyPage,
     planFor,
     remaining,
@@ -377,14 +445,15 @@
   } = useStaffLists({
     bikes,
     shops,
-    overhauls,
-    maintenance,
-    eventChecks,
+    overhauls: filteredOverhauls,
+    maintenance: filteredMaintenance,
+    eventChecks: filteredEventChecks,
     searchBikes,
     searchOverhauls,
     searchMaintenance,
     searchEvents,
     matchesBikeFilter,
+    matchesBikeAssignment,
     planFor,
     remaining,
     scheduleRemaining,
@@ -474,6 +543,8 @@
     editTarget,
     editDate,
     editEndDate,
+    editEstimatedWorkMinutes,
+    editScheduleSlots,
     editTitle,
     editDetail,
     editReceptionist,
@@ -511,6 +582,8 @@
     newOverhaulReceptionDate,
     newOverhaulDate,
     newOverhaulEndDate,
+    newOverhaulEstimatedWorkMinutes,
+    newOverhaulScheduleSlots,
     newOverhaulIsAdHoc,
     newOverhaulTitle,
     newOverhaulDetail,
@@ -518,6 +591,8 @@
     maintenanceBikeSearch,
     newWorkDate,
     newWorkEndDate,
+    newWorkEstimatedWorkMinutes,
+    newWorkScheduleSlots,
     newWorkIsAdHoc,
     newWorkTitle,
     newWorkDetail,
@@ -527,6 +602,8 @@
     newEventDate,
     newInspectionDate,
     newInspectionEndDate,
+    newEventEstimatedWorkMinutes,
+    newEventScheduleSlots,
     newEventIsAdHoc,
     notice,
     showOverhaulModal,
@@ -571,11 +648,25 @@
           <div v-if="notice" class="notice">
             <span>{{ notice }}</span><button @click="notice = ''">×</button>
           </div>
+          <StaffAssignmentFilter
+            v-if="showStaffAssignmentFilter"
+            :shops="shops"
+            :staff="staff"
+            :selected-shop-id="selectedShopId"
+            :selected-staff-id="selectedStaffId"
+            @shop-change="
+              selectedShopId = $event;
+              selectedStaffId = null;
+            "
+            @staff-change="selectedStaffId = $event"
+          />
           <DashboardView
             v-if="page === 'dashboard'"
             :bikes="bikes"
+            :bikes-count="filteredBikes.length"
             :dashboard-rows="dashboardRows"
             :reminders="reminders"
+            :customer-follow-ups="customerFollowUps"
             :upcoming-count="upcomingCount"
             :pending-count="pendingCount"
             :completed-count="completedCount"
@@ -589,6 +680,10 @@
           <StaffCalendarView
             v-else-if="page === 'calendar'"
             :entries="staffCalendarEntries"
+            :shops="shops"
+            :staff="staff"
+            :selected-shop-id="selectedShopId"
+            :selected-staff-id="selectedStaffId"
             @open-item="openEdit($event.kind, $event.item)"
           />
           <ShopsView
@@ -727,11 +822,13 @@
               :customer-name="customerPortalName"
               :bike-cards="mypageBikeCards"
               :schedule-rows="mypageScheduleRows"
+              :history-rows="mypageHistoryRows"
               :search-text="searchMyPage"
               :date-sort-label="sortLabel('mypage', 'date')"
               :status-sort-label="sortLabel('mypage', 'status')"
               @update:search-text="searchMyPage = $event"
               @sort="toggleListSort('mypage', $event)"
+              @open-report="selectedWorkReport = $event"
             />
           </template>
         </div>
@@ -771,6 +868,9 @@
       :customer-profile-message="customerProfileMessage"
       :bikes="selectedCustomerBikeCards"
       :works="selectedCustomerWorks"
+      :staff="staff"
+      :use-mock-data="USE_MOCK_DATA"
+      :mock-contacts="mockData.customerContacts"
       :show-identity-link="Boolean(portalProfile?.isStaffAdmin && selectedCustomerId !== null)"
       :identity-tenant-id="customerIdentityTenantId"
       :identity-object-id="customerIdentityObjectId"
@@ -791,6 +891,7 @@
       @open-bike-detail="openBikeDetail"
       @register-bike="openCustomerBikeRegistration($event.kind, $event.bike)"
       @open-bike-page="openCustomerBikePage($event.target, $event.bikeId)"
+      @contacts-changed="updateCustomerFollowUps"
     />
     <ContractRegistrationModal
       v-if="showContractModal"
@@ -835,6 +936,8 @@
       v-model:reception-date="newOverhaulReceptionDate"
       v-model:start-date="newOverhaulDate"
       v-model:end-date="newOverhaulEndDate"
+      v-model:estimated-work-minutes="newOverhaulEstimatedWorkMinutes"
+      v-model:schedule-slots="newOverhaulScheduleSlots"
       v-model:is-ad-hoc="newOverhaulIsAdHoc"
       v-model:title="newOverhaulTitle"
       v-model:detail="newOverhaulDetail"
@@ -854,6 +957,8 @@
       v-model:bike-search="maintenanceBikeSearch"
       v-model:start-date="newWorkDate"
       v-model:end-date="newWorkEndDate"
+      v-model:estimated-work-minutes="newWorkEstimatedWorkMinutes"
+      v-model:schedule-slots="newWorkScheduleSlots"
       v-model:is-ad-hoc="newWorkIsAdHoc"
       v-model:title="newWorkTitle"
       v-model:detail="newWorkDetail"
@@ -875,6 +980,8 @@
       v-model:event-date="newEventDate"
       v-model:inspection-start-date="newInspectionDate"
       v-model:inspection-end-date="newInspectionEndDate"
+      v-model:estimated-work-minutes="newEventEstimatedWorkMinutes"
+      v-model:schedule-slots="newEventScheduleSlots"
       v-model:is-ad-hoc="newEventIsAdHoc"
       :bike-selected="Boolean(eventScheduleCapacity.bike)"
       :available-count="eventScheduleCapacity.available"
@@ -901,6 +1008,7 @@
     <WorkReportModal
       v-if="selectedWorkReport"
       :history="selectedWorkReport"
+      :allow-quote="role === 'staff'"
       @close="selectedWorkReport = null"
     />
     <WorkStopModal
@@ -915,6 +1023,8 @@
       v-if="editTarget"
       v-model:start-date="editDate"
       v-model:end-date="editEndDate"
+      v-model:estimated-work-minutes="editEstimatedWorkMinutes"
+      v-model:schedule-slots="editScheduleSlots"
       v-model:title="editTitle"
       v-model:detail="editDetail"
       v-model:receptionist="editReceptionist"

@@ -182,7 +182,9 @@ public abstract class ApiControllerBase : ControllerBase
         Receptionist = item.ReceptionistNavigation?.Name,
         item.CompletedDate,
         item.Memo,
-        item.IsAdHoc
+        item.IsAdHoc,
+        item.EstimatedWorkMinutes,
+        ScheduleSlots = DeserializeScheduleSlots(item.ScheduleSlotsJson)
     };
 
     protected static object EventView(EventCheck item) => new
@@ -199,8 +201,15 @@ public abstract class ApiControllerBase : ControllerBase
         item.ShopId,
         item.ReceptionistId,
         item.CompletedDate,
-        item.IsAdHoc
+        item.IsAdHoc,
+        item.EstimatedWorkMinutes,
+        ScheduleSlots = DeserializeScheduleSlots(item.ScheduleSlotsJson)
     };
+
+    private static List<ScheduleTimeSlot> DeserializeScheduleSlots(string? scheduleSlotsJson) =>
+        string.IsNullOrWhiteSpace(scheduleSlotsJson)
+            ? []
+            : JsonSerializer.Deserialize<List<ScheduleTimeSlot>>(scheduleSlotsJson) ?? [];
 
     protected static object HistoryView(WorkHistory item) => new
     {
